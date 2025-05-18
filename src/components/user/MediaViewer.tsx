@@ -78,7 +78,7 @@ export function MediaViewer({ visualMedia, audioMedia, currentLanguage }: MediaV
         )}
         {visualMedia?.type === 'video' && (
           <div className="w-full">
-            <video controls width="100%" className="rounded-md max-h-[400px]" aria-label={visualMediaAccessibleName} autoPlay muted>
+            <video controls width="100%" className="rounded-md max-h-[400px]" aria-label={visualMediaAccessibleName} autoPlay>
               <source src={visualMedia.url} />
               Tarayıcınız video etiketini desteklemiyor.
             </video>
