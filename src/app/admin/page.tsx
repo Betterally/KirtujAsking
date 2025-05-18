@@ -13,7 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from "@/hooks/use-toast";
-import { PlusCircle, Trash2, Edit3, List, Image as ImageIcon, AudioWave } from 'lucide-react';
+import { PlusCircle, Trash2, Edit3, List, Image as ImageIcon, AudioWaveform } from 'lucide-react';
 
 const createEmptyTurkishText = (): LocalizedText => ({ tr: "" });
 
@@ -75,7 +75,7 @@ export default function AdminPage() {
     setSelectedQuestion(prev => prev ? { ...prev, choices: updatedChoices } : null);
   };
 
-  const updateOrAddMediaItem = (choiceIndex: number, mediaType: 'image' | 'audio', newUrl: string, newAltText?: string) => {
+  const updateOrAddMediaItem = (choiceIndex: number, mediaType: 'image' | 'audio' | 'video', newUrl: string, newAltText?: string) => {
     if (!selectedQuestion) return;
 
     const choicesCopy = JSON.parse(JSON.stringify(selectedQuestion.choices)) as Choice[];
@@ -103,7 +103,7 @@ export default function AdminPage() {
     setSelectedQuestion(prev => prev ? { ...prev, choices: choicesCopy } : null);
   };
 
-  const handleChoiceMediaPropertyChange = (choiceIndex: number, mediaType: 'image' | 'audio', property: 'url' | 'altText', value: string) => {
+  const handleChoiceMediaPropertyChange = (choiceIndex: number, mediaType: 'image' | 'audio' | 'video', property: 'url' | 'altText', value: string) => {
     if (!selectedQuestion) return;
     
     const choicesCopy = JSON.parse(JSON.stringify(selectedQuestion.choices)) as Choice[];
@@ -131,7 +131,7 @@ export default function AdminPage() {
     setSelectedQuestion(prev => prev ? { ...prev, choices: choicesCopy } : null);
   };
   
-  const handleChoiceMediaFileUpload = (choiceIndex: number, mediaType: 'image' | 'audio', file: File | null) => {
+  const handleChoiceMediaFileUpload = (choiceIndex: number, mediaType: 'image' | 'audio' | 'video', file: File | null) => {
     if (!selectedQuestion) return;
 
     if (!file) { // File was cleared
@@ -155,12 +155,12 @@ export default function AdminPage() {
     reader.readAsDataURL(file);
   };
 
-  const handleRemoveChoiceMedia = (choiceIndex: number, mediaType: 'image' | 'audio') => {
+  const handleRemoveChoiceMedia = (choiceIndex: number, mediaType: 'image' | 'audio' | 'video') => {
     if (!selectedQuestion) return;
     const choicesCopy = JSON.parse(JSON.stringify(selectedQuestion.choices)) as Choice[];
     choicesCopy[choiceIndex].media = choicesCopy[choiceIndex].media.filter(m => m.type !== mediaType);
     setSelectedQuestion(prev => prev ? { ...prev, choices: choicesCopy } : null);
-    toast({ title: "Medya Kaldırıldı", description: `${mediaType === 'image' ? 'Resim' : 'Ses'} medyası kaldırıldı.`});
+    toast({ title: "Medya Kaldırıldı", description: `${mediaType === 'image' ? 'Resim' : (mediaType === 'audio' ? 'Ses' : 'Video')} medyası kaldırıldı.`});
   };
 
   const handleAddChoiceToQuestion = () => {
@@ -230,7 +230,7 @@ export default function AdminPage() {
     setSelectedQuestion(null);
   };
 
-  const getChoiceMediaItem = (choice: Choice | undefined, type: 'image' | 'audio'): MediaItem | undefined => {
+  const getChoiceMediaItem = (choice: Choice | undefined, type: 'image' | 'audio' | 'video'): MediaItem | undefined => {
     return choice?.media?.find(m => m.type === type);
   };
 
@@ -292,6 +292,8 @@ export default function AdminPage() {
                   {selectedQuestion.choices.map((choice, choiceIndex) => {
                     const imageMedia = getChoiceMediaItem(choice, 'image');
                     const audioMedia = getChoiceMediaItem(choice, 'audio');
+                    // Video media can be added similarly if needed:
+                    // const videoMedia = getChoiceMediaItem(choice, 'video');
                     return (
                       <Card key={choice.id} className="p-4 space-y-3 bg-muted/30 mb-4">
                         <div className="flex justify-between items-center">
@@ -361,7 +363,7 @@ export default function AdminPage() {
 
                         {/* Audio Media Section */}
                         <div className="space-y-2 pt-2 border-t mt-3">
-                          <Label className="flex items-center"><AudioWave className="mr-2 h-4 w-4" /> Ses Medyası (İsteğe Bağlı)</Label>
+                          <Label className="flex items-center"><AudioWaveform className="mr-2 h-4 w-4" /> Ses Medyası (İsteğe Bağlı)</Label>
                            <div className="mt-1">
                               <Label htmlFor={`media-file-${choice.id}-audio`}>Ses Dosyası Yükle</Label>
                               <Input
