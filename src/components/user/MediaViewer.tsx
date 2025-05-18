@@ -42,7 +42,7 @@ export function MediaViewer({ media, currentLanguage }: MediaViewerProps) {
         )}
         {media.type === 'audio' && (
           <div className="w-full">
-            <audio controls src={media.url} className="w-full rounded-md" aria-label={accessibleName}>
+            <audio controls src={media.url} className="w-full rounded-md" aria-label={accessibleName} autoPlay>
               Tarayıcınız ses öğesini desteklemiyor.
             </audio>
             {media.altText && <p className="text-sm text-muted-foreground mt-2">{accessibleName}</p>}
@@ -50,7 +50,7 @@ export function MediaViewer({ media, currentLanguage }: MediaViewerProps) {
         )}
         {media.type === 'video' && (
           <div className="w-full">
-            <video controls width="100%" className="rounded-md max-h-[400px]" aria-label={accessibleName}>
+            <video controls width="100%" className="rounded-md max-h-[400px]" aria-label={accessibleName} autoPlay>
               <source src={media.url} /> {/* Let browser infer type or add type if known e.g. type="video/mp4" */}
               Tarayıcınız video etiketini desteklemiyor.
             </video>
