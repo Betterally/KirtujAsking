@@ -7,12 +7,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Image as ImageIcon, Volume2, Film, AlertCircle, Paperclip } from "lucide-react";
-import { useState, useEffect } from "react"; // Added useEffect here
+import { useEffect } from "react"; // Removed useState as it's not directly used for value
 
 interface QuestionDisplayProps {
   question: Question;
   currentLanguage: LanguageCode;
   onAnswerSelect: (choice: Choice) => void;
+  selectedChoiceId?: string | null; 
 }
 
 const getMediaIconElement = (mediaType: MediaItem['type'] | undefined) => {
@@ -45,26 +46,18 @@ const getChoiceDisplayIcons = (mediaItems: MediaItem[]) => {
 
   if (icons.length > 0) return <>{icons}</>;
   
-  // Fallback for unknown or other types, if any single media item exists
   if (mediaItems[0]) return getMediaIconElement(mediaItems[0].type);
   return null;
 };
 
-export function QuestionDisplay({ question, currentLanguage, onAnswerSelect }: QuestionDisplayProps) {
-  const [selectedValue, setSelectedValue] = useState<string | undefined>(undefined);
-
+export function QuestionDisplay({ question, currentLanguage, onAnswerSelect, selectedChoiceId }: QuestionDisplayProps) {
+  
   const handleSelect = (choiceId: string) => {
-    setSelectedValue(choiceId);
     const selectedChoice = question.choices.find(c => c.id === choiceId);
     if (selectedChoice) {
       onAnswerSelect(selectedChoice);
     }
   };
-
-  useEffect(() => {
-    // Reset selected value when question changes
-    setSelectedValue(undefined);
-  }, [question]);
 
   if (!question) {
     return (
@@ -92,14 +85,18 @@ export function QuestionDisplay({ question, currentLanguage, onAnswerSelect }: Q
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <RadioGroup value={selectedValue} onValueChange={handleSelect} className="space-y-4">
-          {question.choices.map((choice, index) => {
+        <RadioGroup 
+          value={selectedChoiceId || undefined} 
+          onValueChange={handleSelect} 
+          className="space-y-4"
+        >
+          {question.choices.map((choice) => {
             const choiceText = choice.text[currentLanguage] || choice.text['tr'] || "Seçenek metni bulunamadı";
-            const choiceId = `${question.id}-choice-${choice.id}`; // Ensure unique id for label association
+            const choiceHtmlId = `${question.id}-choice-${choice.id}`; 
             return (
               <div key={choice.id} className="flex items-center">
-                <RadioGroupItem value={choice.id} id={choiceId} />
-                <Label htmlFor={choiceId} className="ml-3 flex-1 cursor-pointer text-lg p-3 rounded-md hover:bg-accent/20 transition-colors border border-transparent focus-within:border-primary">
+                <RadioGroupItem value={choice.id} id={choiceHtmlId} />
+                <Label htmlFor={choiceHtmlId} className="ml-3 flex-1 cursor-pointer text-lg p-3 rounded-md hover:bg-accent/20 transition-colors border border-transparent focus-within:border-primary">
                   <span className="flex items-center justify-between">
                     {choiceText}
                     {getChoiceDisplayIcons(choice.media)}
