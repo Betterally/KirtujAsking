@@ -13,52 +13,59 @@ interface MediaViewerProps {
 
 export function MediaViewer({ media, currentLanguage }: MediaViewerProps) {
   if (!media) {
-    return null; // Don't render anything if no media is selected
+    return null; 
   }
 
-  const altText = media.altText?.[currentLanguage] || media.altText?.['en'] || `Media content for ${media.type}`;
+  // For images, altText is relevant. For audio/video, it can be used as an accessible name.
+  const accessibleName = media.altText?.[currentLanguage] || media.altText?.['tr'] || media.altText?.['en'] || `Media content for ${media.type}`;
 
   return (
     <Card className="mt-8 w-full max-w-2xl mx-auto shadow-lg">
       <CardHeader>
-        <CardTitle className="text-xl font-medium">Media Response</CardTitle>
+        <CardTitle className="text-xl font-medium">Medya Yanıtı</CardTitle>
       </CardHeader>
       <CardContent className="flex justify-center items-center p-4">
         {media.type === 'image' && (
           <Image
             src={media.url}
-            alt={altText}
+            alt={accessibleName}
             width={600}
             height={400}
             className="rounded-md object-contain max-h-[400px]"
             data-ai-hint={media.dataAiHint || 'media content'}
-            onError={(e) => e.currentTarget.src = 'https://placehold.co/600x400.png?text=Error+Loading+Image'}
+            onError={(e) => {
+              const target = e.target as HTMLImageElement;
+              target.src = 'https://placehold.co/600x400.png?text=Resim+Yüklenemedi';
+              target.alt = 'Resim yüklenirken hata oluştu';
+            }}
           />
         )}
         {media.type === 'audio' && (
           <div className="w-full">
-            <audio controls src={media.url} className="w-full rounded-md" aria-label={altText}>
-              Your browser does not support the audio element.
+            <audio controls src={media.url} className="w-full rounded-md" aria-label={accessibleName}>
+              Tarayıcınız ses öğesini desteklemiyor.
             </audio>
-            <p className="text-sm text-muted-foreground mt-2">{altText}</p>
+            {media.altText && <p className="text-sm text-muted-foreground mt-2">{accessibleName}</p>}
           </div>
         )}
         {media.type === 'video' && (
           <div className="w-full">
-            <video controls width="100%" className="rounded-md max-h-[400px]" aria-label={altText}>
-              <source src={media.url} type="video/mp4" />
-              Your browser does not support the video tag.
+            <video controls width="100%" className="rounded-md max-h-[400px]" aria-label={accessibleName}>
+              <source src={media.url} /> {/* Let browser infer type or add type if known e.g. type="video/mp4" */}
+              Tarayıcınız video etiketini desteklemiyor.
             </video>
-            <p className="text-sm text-muted-foreground mt-2">{altText}</p>
+            {media.altText && <p className="text-sm text-muted-foreground mt-2">{accessibleName}</p>}
           </div>
         )}
         {!['image', 'audio', 'video'].includes(media.type) && (
           <div className="text-destructive flex items-center">
             <AlertTriangle className="mr-2 h-5 w-5" />
-            Unsupported media type.
+            Desteklenmeyen medya türü.
           </div>
         )}
       </CardContent>
     </Card>
   );
 }
+
+    

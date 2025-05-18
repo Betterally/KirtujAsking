@@ -13,7 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from "@/hooks/use-toast";
-import { PlusCircle, Trash2, Edit3, List, Image as ImageIcon, AudioWaveform } from 'lucide-react';
+import { PlusCircle, Trash2, Edit3, List, Image as ImageIcon, AudioWaveform, Film } from 'lucide-react';
 
 const createEmptyTurkishText = (): LocalizedText => ({ tr: "" });
 
@@ -37,9 +37,7 @@ export default function AdminPage() {
   const { toast } = useToast();
 
   useEffect(() => {
-    // Deep clone initialQuestions to avoid modifying the original data
     const clonedInitialQuestions = JSON.parse(JSON.stringify(initialQuestions));
-    // Ensure media is always an array
     clonedInitialQuestions.forEach((q: Question) => {
       q.choices.forEach((c: Choice) => {
         if (!Array.isArray(c.media)) {
@@ -53,7 +51,7 @@ export default function AdminPage() {
   const handleSelectQuestion = (questionId: string) => {
     const question = questions.find(q => q.id === questionId);
     if (question) {
-      setSelectedQuestion(JSON.parse(JSON.stringify(question))); // Deep clone
+      setSelectedQuestion(JSON.parse(JSON.stringify(question))); 
       setIsCreatingNew(false);
     }
   };
@@ -96,7 +94,7 @@ export default function AdminPage() {
       };
       if (mediaType === 'image') {
         newMediaItem.altText = { tr: newAltText || "" };
-        newMediaItem.dataAiHint = "custom image"; // default hint
+        newMediaItem.dataAiHint = "custom image";
       }
       choiceToUpdate.media.push(newMediaItem);
     }
@@ -110,17 +108,19 @@ export default function AdminPage() {
     const choiceToUpdate = choicesCopy[choiceIndex];
     let mediaItem = choiceToUpdate.media.find(m => m.type === mediaType);
 
-    if (!mediaItem && property === 'url' && value) { // Create if not exists and URL is being set
-        mediaItem = { type: mediaType, url: '', altText: mediaType === 'image' ? createEmptyTurkishText() : undefined };
+    if (!mediaItem && property === 'url' && value) { 
+        mediaItem = { type: mediaType, url: '' };
+        if (mediaType === 'image') {
+            mediaItem.altText = createEmptyTurkishText();
+        }
         choiceToUpdate.media.push(mediaItem);
     } else if (!mediaItem) {
-        return; // Cannot set altText for non-existing media
+        return; 
     }
     
     if (property === 'url') {
         mediaItem.url = value;
-         // If URL is cleared, consider removing the media item or just clearing URL
-        if (!value) {
+        if (!value) { // If URL is cleared, remove the media item
             choiceToUpdate.media = choiceToUpdate.media.filter(m => m.type !== mediaType);
         }
     } else if (property === 'altText' && mediaType === 'image') {
@@ -134,10 +134,9 @@ export default function AdminPage() {
   const handleChoiceMediaFileUpload = (choiceIndex: number, mediaType: 'image' | 'audio' | 'video', file: File | null) => {
     if (!selectedQuestion) return;
 
-    if (!file) { // File was cleared
-        handleRemoveChoiceMedia(choiceIndex, mediaType); // Remove or clear the media
+    if (!file) { 
+        handleRemoveChoiceMedia(choiceIndex, mediaType);
         toast({ title: "Dosya Temizlendi", description: "Daha önce seçilen dosya kaldırıldı." });
-        // Visually clear the file input - this is tricky. It's better to just update the state.
         const fileInput = document.getElementById(`media-file-${selectedQuestion.choices[choiceIndex].id}-${mediaType}`) as HTMLInputElement;
         if (fileInput) fileInput.value = "";
         return;
@@ -146,7 +145,8 @@ export default function AdminPage() {
     const reader = new FileReader();
     reader.onloadend = () => {
         const dataUrl = reader.result as string;
-        updateOrAddMediaItem(choiceIndex, mediaType, dataUrl, mediaType === 'image' ? (selectedQuestion.choices[choiceIndex].media.find(m=>m.type==='image')?.altText?.tr || file.name) : undefined);
+        const altText = mediaType === 'image' ? (selectedQuestion.choices[choiceIndex].media.find(m=>m.type==='image')?.altText?.tr || file.name) : undefined;
+        updateOrAddMediaItem(choiceIndex, mediaType, dataUrl, altText);
         toast({ title: "Dosya Hazır", description: `${file.name} seçildi. Kalıcı olması için soruyu kaydedin.` });
     };
     reader.onerror = () => {
@@ -161,6 +161,9 @@ export default function AdminPage() {
     choicesCopy[choiceIndex].media = choicesCopy[choiceIndex].media.filter(m => m.type !== mediaType);
     setSelectedQuestion(prev => prev ? { ...prev, choices: choicesCopy } : null);
     toast({ title: "Medya Kaldırıldı", description: `${mediaType === 'image' ? 'Resim' : (mediaType === 'audio' ? 'Ses' : 'Video')} medyası kaldırıldı.`});
+     // Clear the file input if it exists
+    const fileInput = document.getElementById(`media-file-${choicesCopy[choiceIndex].id}-${mediaType}`) as HTMLInputElement;
+    if (fileInput) fileInput.value = "";
   };
 
   const handleAddChoiceToQuestion = () => {
@@ -193,11 +196,10 @@ export default function AdminPage() {
         if (!choice.text.tr) {
             missingText = true;
         }
-        // Ensure media array items have necessary fields if they exist
         choice.media.forEach(m => {
             if (m.type === 'image' && (!m.altText || !m.altText.tr)) {
                 if (!m.altText) m.altText = createEmptyTurkishText();
-                m.altText.tr = "Resim için alternatif metin"; // Default alt text
+                m.altText.tr = "Resim için alternatif metin"; 
                 toast({ title: "Uyarı", description: `Bir resim için varsayılan alternatif metin eklendi. Lütfen güncelleyin.`, variant: "default", duration: 4000 });
             }
         });
@@ -212,13 +214,15 @@ export default function AdminPage() {
         });
         return;
     }
+    
+    const questionToSave = JSON.parse(JSON.stringify(selectedQuestion));
 
     if (isCreatingNew) {
-      setQuestions(prev => [...prev, selectedQuestion]);
+      setQuestions(prev => [...prev, questionToSave]);
     } else {
-      setQuestions(prev => prev.map(q => q.id === selectedQuestion.id ? selectedQuestion : q));
+      setQuestions(prev => prev.map(q => q.id === questionToSave.id ? questionToSave : q));
     }
-    toast({ title: "Başarılı", description: `Soru "${selectedQuestion.text.tr}" kaydedildi.` });
+    toast({ title: "Başarılı", description: `Soru "${questionToSave.text.tr}" kaydedildi.` });
     setSelectedQuestion(null);
     setIsCreatingNew(false);
   };
@@ -267,10 +271,10 @@ export default function AdminPage() {
               <CardHeader>
                 <CardTitle className="flex items-center">
                   <Edit3 className="mr-2 h-5 w-5" /> 
-                  {isCreatingNew ? "Yeni Soru Oluştur" : `Soruyu Düzenle: ${selectedQuestion.text.tr}`}
+                  {isCreatingNew ? "Yeni Soru Oluştur" : `Soruyu Düzenle: ${selectedQuestion.text.tr || 'Başlıksız'}`}
                 </CardTitle>
                 <CardDescription>
-                  Değişiklikler yereldir ve kalıcı olmaz. Tüm metinler Türkçe olmalıdır.
+                  Tüm metinler Türkçe olmalıdır. Değişiklikler yereldir ve sayfa yenilendiğinde kaybolur.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
@@ -292,8 +296,7 @@ export default function AdminPage() {
                   {selectedQuestion.choices.map((choice, choiceIndex) => {
                     const imageMedia = getChoiceMediaItem(choice, 'image');
                     const audioMedia = getChoiceMediaItem(choice, 'audio');
-                    // Video media can be added similarly if needed:
-                    // const videoMedia = getChoiceMediaItem(choice, 'video');
+                    const videoMedia = getChoiceMediaItem(choice, 'video');
                     return (
                       <Card key={choice.id} className="p-4 space-y-3 bg-muted/30 mb-4">
                         <div className="flex justify-between items-center">
@@ -314,45 +317,36 @@ export default function AdminPage() {
                         
                         {/* Image Media Section */}
                         <div className="space-y-2 pt-2 border-t mt-3">
-                          <Label className="flex items-center"><ImageIcon className="mr-2 h-4 w-4" /> Resim Medyası (İsteğe Bağlı)</Label>
-                          <div className="mt-1">
-                              <Label htmlFor={`media-file-${choice.id}-image`}>Resim Yükle</Label>
-                              <Input
-                                  id={`media-file-${choice.id}-image`}
-                                  type="file"
-                                  accept="image/*"
-                                  onChange={(e) => handleChoiceMediaFileUpload(choiceIndex, 'image', e.target.files?.[0] || null)}
-                                  className="mt-1 w-full"
-                              />
-                          </div>
-                          <div className="mt-1">
-                              <Label htmlFor={`media-url-${choice.id}-image`}>Veya Resim URL Yapıştır</Label>
-                              <Input
-                                  id={`media-url-${choice.id}-image`}
-                                  value={imageMedia?.url?.startsWith('data:') ? "" : imageMedia?.url || ''}
-                                  onChange={(e) => handleChoiceMediaPropertyChange(choiceIndex, 'image', 'url', e.target.value)}
-                                  placeholder="Örn: https://example.com/resim.jpg"
-                                  className="mt-1 w-full"
-                                  disabled={!!(imageMedia?.url && imageMedia.url.startsWith('data:'))}
-                              />
-                              {imageMedia?.url && imageMedia.url.startsWith('data:') && (
-                                  <p className="text-xs text-muted-foreground mt-1">
-                                      Yüklenen resim Data URI olarak saklandı. (Boyut: {(imageMedia.url.length * 0.75 / (1024*1024)).toFixed(2)} MB)
-                                      <Button variant="link" size="sm" className="p-0 h-auto ml-1 text-destructive" onClick={() => handleRemoveChoiceMedia(choiceIndex, 'image')}>Temizle</Button>
-                                  </p>
-                              )}
-                          </div>
+                          <Label className="flex items-center"><ImageIcon className="mr-2 h-4 w-4" /> Resim Medyası</Label>
+                          <Input
+                              id={`media-file-${choice.id}-image`}
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) => handleChoiceMediaFileUpload(choiceIndex, 'image', e.target.files?.[0] || null)}
+                              className="mt-1 w-full"
+                          />
+                          <Input
+                              id={`media-url-${choice.id}-image`}
+                              value={imageMedia?.url?.startsWith('data:') ? "" : imageMedia?.url || ''}
+                              onChange={(e) => handleChoiceMediaPropertyChange(choiceIndex, 'image', 'url', e.target.value)}
+                              placeholder="Veya Resim URL'si yapıştırın"
+                              className="mt-1 w-full"
+                              disabled={!!(imageMedia?.url && imageMedia.url.startsWith('data:'))}
+                          />
+                          {imageMedia?.url?.startsWith('data:') && (
+                              <p className="text-xs text-muted-foreground mt-1">
+                                  Yüklenen resim Data URI olarak saklandı.
+                                  <Button variant="link" size="sm" className="p-0 h-auto ml-1 text-destructive" onClick={() => handleRemoveChoiceMedia(choiceIndex, 'image')}>Temizle</Button>
+                              </p>
+                          )}
                           {imageMedia && (
-                            <div className="mt-1">
-                              <Label htmlFor={`media-altText-${choice.id}-image`}>Resim Alternatif Metni (Türkçe)</Label>
-                              <Input
-                                  id={`media-altText-${choice.id}-image`}
-                                  value={imageMedia.altText?.tr || ""}
-                                  onChange={(e) => handleChoiceMediaPropertyChange(choiceIndex, 'image', 'altText', e.target.value)}
-                                  placeholder="Resim için alternatif metin (Türkçe)"
-                                  className="mt-1 w-full"
-                              />
-                            </div>
+                            <Input
+                                id={`media-altText-${choice.id}-image`}
+                                value={imageMedia.altText?.tr || ""}
+                                onChange={(e) => handleChoiceMediaPropertyChange(choiceIndex, 'image', 'altText', e.target.value)}
+                                placeholder="Resim Alternatif Metni (Türkçe)"
+                                className="mt-1 w-full"
+                            />
                           )}
                            {imageMedia && (
                              <Button variant="outline" size="sm" onClick={() => handleRemoveChoiceMedia(choiceIndex, 'image')} className="mt-1">
@@ -363,37 +357,62 @@ export default function AdminPage() {
 
                         {/* Audio Media Section */}
                         <div className="space-y-2 pt-2 border-t mt-3">
-                          <Label className="flex items-center"><AudioWaveform className="mr-2 h-4 w-4" /> Ses Medyası (İsteğe Bağlı)</Label>
-                           <div className="mt-1">
-                              <Label htmlFor={`media-file-${choice.id}-audio`}>Ses Dosyası Yükle</Label>
-                              <Input
-                                  id={`media-file-${choice.id}-audio`}
-                                  type="file"
-                                  accept="audio/*"
-                                  onChange={(e) => handleChoiceMediaFileUpload(choiceIndex, 'audio', e.target.files?.[0] || null)}
-                                  className="mt-1 w-full"
-                              />
-                          </div>
-                          <div className="mt-1">
-                              <Label htmlFor={`media-url-${choice.id}-audio`}>Veya Ses URL Yapıştır</Label>
-                              <Input
-                                  id={`media-url-${choice.id}-audio`}
-                                  value={audioMedia?.url?.startsWith('data:') ? "" : audioMedia?.url || ''}
-                                  onChange={(e) => handleChoiceMediaPropertyChange(choiceIndex, 'audio', 'url', e.target.value)}
-                                  placeholder="Örn: https://example.com/ses.mp3"
-                                  className="mt-1 w-full"
-                                  disabled={!!(audioMedia?.url && audioMedia.url.startsWith('data:'))}
-                              />
-                              {audioMedia?.url && audioMedia.url.startsWith('data:') && (
-                                  <p className="text-xs text-muted-foreground mt-1">
-                                      Yüklenen ses Data URI olarak saklandı. (Boyut: {(audioMedia.url.length * 0.75 / (1024*1024)).toFixed(2)} MB)
-                                      <Button variant="link" size="sm" className="p-0 h-auto ml-1 text-destructive" onClick={() => handleRemoveChoiceMedia(choiceIndex, 'audio')}>Temizle</Button>
-                                  </p>
-                              )}
-                          </div>
+                          <Label className="flex items-center"><AudioWaveform className="mr-2 h-4 w-4" /> Ses Medyası</Label>
+                           <Input
+                                id={`media-file-${choice.id}-audio`}
+                                type="file"
+                                accept="audio/*"
+                                onChange={(e) => handleChoiceMediaFileUpload(choiceIndex, 'audio', e.target.files?.[0] || null)}
+                                className="mt-1 w-full"
+                            />
+                            <Input
+                                id={`media-url-${choice.id}-audio`}
+                                value={audioMedia?.url?.startsWith('data:') ? "" : audioMedia?.url || ''}
+                                onChange={(e) => handleChoiceMediaPropertyChange(choiceIndex, 'audio', 'url', e.target.value)}
+                                placeholder="Veya Ses URL'si yapıştırın"
+                                className="mt-1 w-full"
+                                disabled={!!(audioMedia?.url && audioMedia.url.startsWith('data:'))}
+                            />
+                            {audioMedia?.url?.startsWith('data:') && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    Yüklenen ses Data URI olarak saklandı.
+                                    <Button variant="link" size="sm" className="p-0 h-auto ml-1 text-destructive" onClick={() => handleRemoveChoiceMedia(choiceIndex, 'audio')}>Temizle</Button>
+                                </p>
+                            )}
                            {audioMedia && (
                              <Button variant="outline" size="sm" onClick={() => handleRemoveChoiceMedia(choiceIndex, 'audio')} className="mt-1">
                                 <Trash2 className="mr-1 h-3 w-3" /> Sesi Temizle
+                            </Button>
+                           )}
+                        </div>
+
+                        {/* Video Media Section */}
+                        <div className="space-y-2 pt-2 border-t mt-3">
+                          <Label className="flex items-center"><Film className="mr-2 h-4 w-4" /> Video Medyası</Label>
+                           <Input
+                                id={`media-file-${choice.id}-video`}
+                                type="file"
+                                accept="video/*"
+                                onChange={(e) => handleChoiceMediaFileUpload(choiceIndex, 'video', e.target.files?.[0] || null)}
+                                className="mt-1 w-full"
+                            />
+                            <Input
+                                id={`media-url-${choice.id}-video`}
+                                value={videoMedia?.url?.startsWith('data:') ? "" : videoMedia?.url || ''}
+                                onChange={(e) => handleChoiceMediaPropertyChange(choiceIndex, 'video', 'url', e.target.value)}
+                                placeholder="Veya Video URL'si yapıştırın"
+                                className="mt-1 w-full"
+                                disabled={!!(videoMedia?.url && videoMedia.url.startsWith('data:'))}
+                            />
+                            {videoMedia?.url?.startsWith('data:') && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    Yüklenen video Data URI olarak saklandı.
+                                    <Button variant="link" size="sm" className="p-0 h-auto ml-1 text-destructive" onClick={() => handleRemoveChoiceMedia(choiceIndex, 'video')}>Temizle</Button>
+                                </p>
+                            )}
+                           {videoMedia && (
+                             <Button variant="outline" size="sm" onClick={() => handleRemoveChoiceMedia(choiceIndex, 'video')} className="mt-1">
+                                <Trash2 className="mr-1 h-3 w-3" /> Videoyu Temizle
                             </Button>
                            )}
                         </div>
@@ -433,3 +452,5 @@ export default function AdminPage() {
     </div>
   );
 }
+
+    

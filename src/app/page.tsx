@@ -12,7 +12,7 @@ import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 
 export default function UserPage() {
-  const [currentLanguage, setCurrentLanguage] = useState<LanguageCode>('en');
+  const [currentLanguage, setCurrentLanguage] = useState<LanguageCode>('tr'); // Default to Turkish
   const [questions, setQuestions] = useState<Question[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedChoice, setSelectedChoice] = useState<Choice | null>(null);
@@ -22,13 +22,17 @@ export default function UserPage() {
     const clonedInitialQuestions = JSON.parse(JSON.stringify(initialQuestions));
     clonedInitialQuestions.forEach((q: Question) => {
       q.choices.forEach((c: Choice) => {
-        if (!Array.isArray(c.media)) { // Ensure media is an array for consistency
+        if (!Array.isArray(c.media)) { 
           c.media = c.media ? [c.media] : [];
         }
       });
     });
     setQuestions(clonedInitialQuestions);
-  }, []);
+    // Reset states when questions are loaded/reloaded
+    setCurrentQuestionIndex(0);
+    setSelectedChoice(null);
+    setShowMedia(false);
+  }, []); // Empty dependency array means this runs once on mount
 
   const handleLanguageChange = (lang: LanguageCode) => {
     setCurrentLanguage(lang);
@@ -61,14 +65,15 @@ export default function UserPage() {
     setCurrentQuestionIndex(0);
     setSelectedChoice(null);
     setShowMedia(false);
+    // Optionally, re-fetch or re-clone questions if they can be modified during a session elsewhere
+    // For now, we assume initialQuestions is static for the quiz session.
   };
 
   const currentQuestion = questions[currentQuestionIndex];
 
-  // Determine which media item to display from the selected choice's media array
-  // Prioritize image, then audio, then the first item if specific types aren't found.
   const mediaToDisplay = selectedChoice?.media?.find(m => m.type === 'image') ||
                          selectedChoice?.media?.find(m => m.type === 'audio') ||
+                         selectedChoice?.media?.find(m => m.type === 'video') ||
                          selectedChoice?.media?.[0];
 
 
@@ -78,7 +83,7 @@ export default function UserPage() {
       <main className="flex-grow container mx-auto px-4 py-8 flex flex-col items-center">
         {questions.length === 0 ? (
           <Card className="w-full max-w-2xl p-8 text-center">
-            <p className="text-xl text-muted-foreground">Loading questions...</p>
+            <p className="text-xl text-muted-foreground">Sorular yükleniyor...</p>
           </Card>
         ) : currentQuestion ? (
           <>
@@ -93,37 +98,39 @@ export default function UserPage() {
             {showMedia && selectedChoice && (!selectedChoice.media || selectedChoice.media.length === 0) && (
                <Card className="mt-8 w-full max-w-2xl mx-auto shadow-lg">
                  <CardContent className="p-6 text-center">
-                   <p className="text-muted-foreground">No media associated with this choice.</p>
+                   <p className="text-muted-foreground">Bu seçenekle ilişkili medya bulunmuyor.</p>
                  </CardContent>
                </Card>
             )}
             <div className="mt-8 flex justify-between w-full max-w-2xl">
               <Button onClick={handlePreviousQuestion} disabled={currentQuestionIndex === 0} variant="outline">
-                <ChevronLeft className="mr-2 h-4 w-4" /> Previous
+                <ChevronLeft className="mr-2 h-4 w-4" /> Önceki
               </Button>
               {currentQuestionIndex === questions.length - 1 ? (
                  <Button onClick={handleRestart} variant="default">
-                    <RefreshCw className="mr-2 h-4 w-4" /> Restart Quiz
+                    <RefreshCw className="mr-2 h-4 w-4" /> Testi Yeniden Başlat
                  </Button>
               ) : (
-                <Button onClick={handleNextQuestion} disabled={currentQuestionIndex === questions.length - 1 || !selectedChoice}>
-                    Next <ChevronRight className="ml-2 h-4 w-4" />
+                <Button onClick={handleNextQuestion} disabled={!selectedChoice || currentQuestionIndex >= questions.length - 1}>
+                    Sonraki <ChevronRight className="ml-2 h-4 w-4" />
                 </Button>
               )}
             </div>
           </>
         ) : (
           <Card className="w-full max-w-2xl p-8 text-center">
-            <p className="text-xl">You've completed all questions!</p>
+            <p className="text-xl">Tüm soruları tamamladınız!</p>
             <Button onClick={handleRestart} variant="default" className="mt-4">
-               <RefreshCw className="mr-2 h-4 w-4" /> Restart Quiz
+               <RefreshCw className="mr-2 h-4 w-4" /> Testi Yeniden Başlat
             </Button>
           </Card>
         )}
       </main>
       <footer className="py-4 text-center text-sm text-muted-foreground border-t">
-        © {new Date().getFullYear()} YanıtMatik. All rights reserved.
+        © {new Date().getFullYear()} YanıtMatik. Tüm hakları saklıdır.
       </footer>
     </div>
   );
 }
+
+    

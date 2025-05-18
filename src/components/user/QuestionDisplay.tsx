@@ -25,27 +25,27 @@ const getMediaIconElement = (mediaType: MediaItem['type'] | undefined) => {
     case 'video':
       return <Film className="w-4 h-4 ml-2 text-muted-foreground" />;
     default:
-      return <Paperclip className="w-4 h-4 ml-2 text-muted-foreground" />; // Generic for other or multiple
+      return <Paperclip className="w-4 h-4 ml-2 text-muted-foreground" />; 
   }
 };
 
-const getChoiceDisplayIcon = (mediaItems: MediaItem[]) => {
+const getChoiceDisplayIcons = (mediaItems: MediaItem[]) => {
   if (!mediaItems || mediaItems.length === 0) return null;
   
-  const hasImage = mediaItems.some(m => m.type === 'image');
-  const hasAudio = mediaItems.some(m => m.type === 'audio');
-
-  if (hasImage && hasAudio) {
-    return (
-      <>
-        <ImageIcon className="w-4 h-4 ml-2 text-muted-foreground" />
-        <Volume2 className="w-4 h-4 ml-1 text-muted-foreground" />
-      </>
-    );
+  const icons = [];
+  if (mediaItems.some(m => m.type === 'image')) {
+    icons.push(<ImageIcon key="image-icon" className="w-4 h-4 ml-2 text-muted-foreground" />);
   }
-  if (hasImage) return getMediaIconElement('image');
-  if (hasAudio) return getMediaIconElement('audio');
-  // If other types exist, you can extend this logic or use a generic icon
+  if (mediaItems.some(m => m.type === 'audio')) {
+    icons.push(<Volume2 key="audio-icon" className="w-4 h-4 ml-1 text-muted-foreground" />);
+  }
+  if (mediaItems.some(m => m.type === 'video')) {
+    icons.push(<Film key="video-icon" className="w-4 h-4 ml-1 text-muted-foreground" />);
+  }
+
+  if (icons.length > 0) return <>{icons}</>;
+  
+  // Fallback for unknown or other types, if any single media item exists
   if (mediaItems[0]) return getMediaIconElement(mediaItems[0].type);
   return null;
 };
@@ -61,23 +61,28 @@ export function QuestionDisplay({ question, currentLanguage, onAnswerSelect }: Q
     }
   };
 
+  useEffect(() => {
+    // Reset selected value when question changes
+    setSelectedValue(undefined);
+  }, [question]);
+
   if (!question) {
     return (
       <Card className="w-full max-w-2xl mx-auto shadow-lg">
         <CardHeader>
           <CardTitle className="flex items-center">
             <AlertCircle className="mr-2 h-6 w-6 text-destructive" />
-            No Question Available
+            Soru Mevcut Değil
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <p>Please try again later or contact support.</p>
+          <p>Lütfen daha sonra tekrar deneyin veya destek ile iletişime geçin.</p>
         </CardContent>
       </Card>
     );
   }
   
-  const questionText = question.text[currentLanguage] || question.text['tr'] || question.text['en']; // Fallback logic
+  const questionText = question.text[currentLanguage] || question.text['tr'] || "Soru metni bulunamadı";
 
   return (
     <Card className="w-full max-w-2xl mx-auto shadow-lg">
@@ -89,15 +94,15 @@ export function QuestionDisplay({ question, currentLanguage, onAnswerSelect }: Q
       <CardContent>
         <RadioGroup value={selectedValue} onValueChange={handleSelect} className="space-y-4">
           {question.choices.map((choice, index) => {
-            const choiceText = choice.text[currentLanguage] || choice.text['tr'] || choice.text['en']; // Fallback logic
-            const choiceId = `${question.id}-choice-${index}`;
+            const choiceText = choice.text[currentLanguage] || choice.text['tr'] || "Seçenek metni bulunamadı";
+            const choiceId = `${question.id}-choice-${choice.id}`; // Ensure unique id for label association
             return (
               <div key={choice.id} className="flex items-center">
                 <RadioGroupItem value={choice.id} id={choiceId} />
                 <Label htmlFor={choiceId} className="ml-3 flex-1 cursor-pointer text-lg p-3 rounded-md hover:bg-accent/20 transition-colors border border-transparent focus-within:border-primary">
                   <span className="flex items-center justify-between">
                     {choiceText}
-                    {getChoiceDisplayIcon(choice.media)}
+                    {getChoiceDisplayIcons(choice.media)}
                   </span>
                 </Label>
               </div>
@@ -108,3 +113,5 @@ export function QuestionDisplay({ question, currentLanguage, onAnswerSelect }: Q
     </Card>
   );
 }
+
+    
