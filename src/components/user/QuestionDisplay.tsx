@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Image as ImageIcon, Volume2, Film, AlertCircle, Paperclip } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react"; // Added useEffect here
 
 interface QuestionDisplayProps {
   question: Question;
@@ -113,5 +113,3 @@ export function QuestionDisplay({ question, currentLanguage, onAnswerSelect }: Q
     </Card>
   );
 }
-
-    
