@@ -15,7 +15,7 @@ export interface MediaItem {
 export interface Choice {
   id: string;
   text: LocalizedText;
-  media?: MediaItem | null;
+  media: MediaItem[]; // Changed from MediaItem | null
 }
 
 export interface Question {

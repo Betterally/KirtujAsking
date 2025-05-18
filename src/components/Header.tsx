@@ -12,9 +12,10 @@ import { Button } from '@/components/ui/button';
 interface HeaderProps {
   currentLanguage: LanguageCode;
   onLanguageChange: (language: LanguageCode) => void;
+  showLanguageSwitcher?: boolean; // New optional prop
 }
 
-export function Header({ currentLanguage, onLanguageChange }: HeaderProps) {
+export function Header({ currentLanguage, onLanguageChange, showLanguageSwitcher = true }: HeaderProps) {
   const pathname = usePathname();
   const isAdminPage = pathname.startsWith('/admin');
 
@@ -23,15 +24,17 @@ export function Header({ currentLanguage, onLanguageChange }: HeaderProps) {
       <div className="container mx-auto flex items-center justify-between">
         <AppLogo />
         <div className="flex items-center gap-4">
-          <LanguageSwitcher 
-            currentLanguage={currentLanguage} 
-            onLanguageChange={onLanguageChange}
-            idSuffix={isAdminPage ? "admin" : "user"}
-          />
+          {showLanguageSwitcher && ( // Conditionally render LanguageSwitcher
+            <LanguageSwitcher 
+              currentLanguage={currentLanguage} 
+              onLanguageChange={onLanguageChange}
+              idSuffix={isAdminPage ? "admin" : "user"}
+            />
+          )}
           {isAdminPage ? (
             <Button variant="outline" size="sm" asChild>
               <Link href="/" aria-label="Go to User View">
-                <Home className="mr-2 h-4 w-4" /> User View
+                <Home className="mr-2 h-4 w-4" /> Kullanıcı Arayüzü
               </Link>
             </Button>
           ) : (

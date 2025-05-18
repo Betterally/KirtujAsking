@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import type { LanguageCode, Question, Choice } from '@/lib/types';
+import type { LanguageCode, Question, Choice, MediaItem } from '@/lib/types';
 import { initialQuestions } from '@/lib/data';
 import { QuestionDisplay } from '@/components/user/QuestionDisplay';
 import { MediaViewer } from '@/components/user/MediaViewer';
@@ -19,20 +19,26 @@ export default function UserPage() {
   const [showMedia, setShowMedia] = useState(false);
 
   useEffect(() => {
-    // In a real app, fetch questions. For now, use mock.
-    setQuestions(initialQuestions);
+    const clonedInitialQuestions = JSON.parse(JSON.stringify(initialQuestions));
+    clonedInitialQuestions.forEach((q: Question) => {
+      q.choices.forEach((c: Choice) => {
+        if (!Array.isArray(c.media)) { // Ensure media is an array for consistency
+          c.media = c.media ? [c.media] : [];
+        }
+      });
+    });
+    setQuestions(clonedInitialQuestions);
   }, []);
 
   const handleLanguageChange = (lang: LanguageCode) => {
     setCurrentLanguage(lang);
-    // Reset selection when language changes as text context changes
     setSelectedChoice(null);
     setShowMedia(false);
   };
 
   const handleAnswerSelect = (choice: Choice) => {
     setSelectedChoice(choice);
-    setShowMedia(true); // Show media immediately on selection
+    setShowMedia(true); 
   };
 
   const handleNextQuestion = () => {
@@ -59,6 +65,13 @@ export default function UserPage() {
 
   const currentQuestion = questions[currentQuestionIndex];
 
+  // Determine which media item to display from the selected choice's media array
+  // Prioritize image, then audio, then the first item if specific types aren't found.
+  const mediaToDisplay = selectedChoice?.media?.find(m => m.type === 'image') ||
+                         selectedChoice?.media?.find(m => m.type === 'audio') ||
+                         selectedChoice?.media?.[0];
+
+
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <Header currentLanguage={currentLanguage} onLanguageChange={handleLanguageChange} />
@@ -74,10 +87,10 @@ export default function UserPage() {
               currentLanguage={currentLanguage}
               onAnswerSelect={handleAnswerSelect}
             />
-            {showMedia && selectedChoice?.media && (
-              <MediaViewer media={selectedChoice.media} currentLanguage={currentLanguage} />
+            {showMedia && mediaToDisplay && (
+              <MediaViewer media={mediaToDisplay} currentLanguage={currentLanguage} />
             )}
-            {showMedia && selectedChoice && !selectedChoice.media && (
+            {showMedia && selectedChoice && (!selectedChoice.media || selectedChoice.media.length === 0) && (
                <Card className="mt-8 w-full max-w-2xl mx-auto shadow-lg">
                  <CardContent className="p-6 text-center">
                    <p className="text-muted-foreground">No media associated with this choice.</p>
@@ -93,7 +106,7 @@ export default function UserPage() {
                     <RefreshCw className="mr-2 h-4 w-4" /> Restart Quiz
                  </Button>
               ) : (
-                <Button onClick={handleNextQuestion} disabled={currentQuestionIndex === questions.length - 1}>
+                <Button onClick={handleNextQuestion} disabled={currentQuestionIndex === questions.length - 1 || !selectedChoice}>
                     Next <ChevronRight className="ml-2 h-4 w-4" />
                 </Button>
               )}
