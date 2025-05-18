@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import type { LanguageCode, Question, Choice, MediaItem } from '@/lib/types';
+import type { LanguageCode, Question, Choice } from '@/lib/types';
 import { initialQuestions } from '@/lib/data';
 import { QuestionDisplay } from '@/components/user/QuestionDisplay';
 import { MediaViewer } from '@/components/user/MediaViewer';
@@ -11,33 +11,46 @@ import { Header } from '@/components/Header';
 import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 
+const LOCAL_STORAGE_KEY = 'yanitmatik_questions';
+
 export default function UserPage() {
-  const [currentLanguage, setCurrentLanguage] = useState<LanguageCode>('tr'); // Default to Turkish
+  const [currentLanguage, setCurrentLanguage] = useState<LanguageCode>('tr');
   const [questions, setQuestions] = useState<Question[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedChoice, setSelectedChoice] = useState<Choice | null>(null);
   const [showMedia, setShowMedia] = useState(false);
 
   useEffect(() => {
-    const clonedInitialQuestions = JSON.parse(JSON.stringify(initialQuestions));
-    clonedInitialQuestions.forEach((q: Question) => {
-      q.choices.forEach((c: Choice) => {
-        if (!Array.isArray(c.media)) { 
-          c.media = c.media ? [c.media] : [];
-        }
-      });
+    let loadedQuestions: Question[];
+    try {
+      const storedQuestionsData = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (storedQuestionsData) {
+        loadedQuestions = JSON.parse(storedQuestionsData);
+      } else {
+        loadedQuestions = JSON.parse(JSON.stringify(initialQuestions));
+      }
+    } catch (error) {
+      console.error("Error loading questions from localStorage for user page, falling back to initial data:", error);
+      loadedQuestions = JSON.parse(JSON.stringify(initialQuestions));
+    }
+    // Ensure media is always an array after loading
+     loadedQuestions.forEach(q => {
+        q.choices.forEach(c => {
+            if (!Array.isArray(c.media)) {
+                c.media = c.media ? [c.media] : [];
+            }
+        });
     });
-    setQuestions(clonedInitialQuestions);
-    // Reset states when questions are loaded/reloaded
+    setQuestions(loadedQuestions);
     setCurrentQuestionIndex(0);
     setSelectedChoice(null);
     setShowMedia(false);
-  }, []); // Empty dependency array means this runs once on mount
+  }, []);
 
   const handleLanguageChange = (lang: LanguageCode) => {
     setCurrentLanguage(lang);
-    setSelectedChoice(null);
-    setShowMedia(false);
+    setSelectedChoice(null); // Reset choice when language changes
+    setShowMedia(false); // Hide media when language changes
   };
 
   const handleAnswerSelect = (choice: Choice) => {
@@ -62,11 +75,31 @@ export default function UserPage() {
   };
   
   const handleRestart = () => {
+    // Reload questions from localStorage or initialData to ensure consistency
+    let loadedQuestions: Question[];
+    try {
+        const storedQuestionsData = localStorage.getItem(LOCAL_STORAGE_KEY);
+        if (storedQuestionsData) {
+            loadedQuestions = JSON.parse(storedQuestionsData);
+        } else {
+            loadedQuestions = JSON.parse(JSON.stringify(initialQuestions));
+        }
+    } catch (error) {
+        console.error("Error reloading questions on restart, falling back to initial data:", error);
+        loadedQuestions = JSON.parse(JSON.stringify(initialQuestions));
+    }
+    loadedQuestions.forEach(q => {
+        q.choices.forEach(c => {
+            if (!Array.isArray(c.media)) {
+                c.media = c.media ? [c.media] : [];
+            }
+        });
+    });
+    setQuestions(loadedQuestions);
+
     setCurrentQuestionIndex(0);
     setSelectedChoice(null);
     setShowMedia(false);
-    // Optionally, re-fetch or re-clone questions if they can be modified during a session elsewhere
-    // For now, we assume initialQuestions is static for the quiz session.
   };
 
   const currentQuestion = questions[currentQuestionIndex];
@@ -83,7 +116,7 @@ export default function UserPage() {
       <main className="flex-grow container mx-auto px-4 py-8 flex flex-col items-center">
         {questions.length === 0 ? (
           <Card className="w-full max-w-2xl p-8 text-center">
-            <p className="text-xl text-muted-foreground">Sorular yükleniyor...</p>
+            <p className="text-xl text-muted-foreground">Sorular yükleniyor veya hiç soru bulunmuyor.</p>
           </Card>
         ) : currentQuestion ? (
           <>
@@ -106,7 +139,7 @@ export default function UserPage() {
               <Button onClick={handlePreviousQuestion} disabled={currentQuestionIndex === 0} variant="outline">
                 <ChevronLeft className="mr-2 h-4 w-4" /> Önceki
               </Button>
-              {currentQuestionIndex === questions.length - 1 ? (
+              {currentQuestionIndex === questions.length - 1 && questions.length > 0 ? (
                  <Button onClick={handleRestart} variant="default">
                     <RefreshCw className="mr-2 h-4 w-4" /> Testi Yeniden Başlat
                  </Button>
@@ -132,5 +165,3 @@ export default function UserPage() {
     </div>
   );
 }
-
-    

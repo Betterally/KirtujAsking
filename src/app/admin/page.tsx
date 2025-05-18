@@ -15,6 +15,8 @@ import { Separator } from '@/components/ui/separator';
 import { useToast } from "@/hooks/use-toast";
 import { PlusCircle, Trash2, Edit3, List, Image as ImageIcon, AudioWaveform, Film } from 'lucide-react';
 
+const LOCAL_STORAGE_KEY = 'yanitmatik_questions';
+
 const createEmptyTurkishText = (): LocalizedText => ({ tr: "" });
 
 const createNewChoice = (idSuffix: string): Choice => ({
@@ -37,15 +39,27 @@ export default function AdminPage() {
   const { toast } = useToast();
 
   useEffect(() => {
-    const clonedInitialQuestions = JSON.parse(JSON.stringify(initialQuestions));
-    clonedInitialQuestions.forEach((q: Question) => {
-      q.choices.forEach((c: Choice) => {
-        if (!Array.isArray(c.media)) {
-          c.media = c.media ? [c.media] : [];
-        }
-      });
+    let loadedQuestions: Question[];
+    try {
+      const storedQuestionsData = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (storedQuestionsData) {
+        loadedQuestions = JSON.parse(storedQuestionsData);
+      } else {
+        loadedQuestions = JSON.parse(JSON.stringify(initialQuestions));
+      }
+    } catch (error) {
+      console.error("Error loading questions from localStorage, falling back to initial data:", error);
+      loadedQuestions = JSON.parse(JSON.stringify(initialQuestions));
+    }
+    // Ensure media is always an array after loading (especially for older data or initialQuestions if not perfectly structured)
+    loadedQuestions.forEach(q => {
+        q.choices.forEach(c => {
+            if (!Array.isArray(c.media)) {
+                c.media = c.media ? [c.media] : [];
+            }
+        });
     });
-    setQuestions(clonedInitialQuestions);
+    setQuestions(loadedQuestions);
   }, []);
 
   const handleSelectQuestion = (questionId: string) => {
@@ -114,13 +128,15 @@ export default function AdminPage() {
             mediaItem.altText = createEmptyTurkishText();
         }
         choiceToUpdate.media.push(mediaItem);
+         // Re-find mediaItem after pushing
+        mediaItem = choiceToUpdate.media.find(m => m.type === mediaType)!;
     } else if (!mediaItem) {
         return; 
     }
     
     if (property === 'url') {
         mediaItem.url = value;
-        if (!value) { // If URL is cleared, remove the media item
+        if (!value && !mediaItem.url.startsWith('data:')) { // If URL is cleared AND it's not a data URI, remove the media item
             choiceToUpdate.media = choiceToUpdate.media.filter(m => m.type !== mediaType);
         }
     } else if (property === 'altText' && mediaType === 'image') {
@@ -161,9 +177,10 @@ export default function AdminPage() {
     choicesCopy[choiceIndex].media = choicesCopy[choiceIndex].media.filter(m => m.type !== mediaType);
     setSelectedQuestion(prev => prev ? { ...prev, choices: choicesCopy } : null);
     toast({ title: "Medya Kaldırıldı", description: `${mediaType === 'image' ? 'Resim' : (mediaType === 'audio' ? 'Ses' : 'Video')} medyası kaldırıldı.`});
-     // Clear the file input if it exists
     const fileInput = document.getElementById(`media-file-${choicesCopy[choiceIndex].id}-${mediaType}`) as HTMLInputElement;
     if (fileInput) fileInput.value = "";
+    const urlInput = document.getElementById(`media-url-${choicesCopy[choiceIndex].id}-${mediaType}`) as HTMLInputElement;
+    if (urlInput) urlInput.value = ""; // Clear URL input as well
   };
 
   const handleAddChoiceToQuestion = () => {
@@ -216,12 +233,16 @@ export default function AdminPage() {
     }
     
     const questionToSave = JSON.parse(JSON.stringify(selectedQuestion));
+    let updatedQuestionsList;
 
     if (isCreatingNew) {
-      setQuestions(prev => [...prev, questionToSave]);
+      updatedQuestionsList = [...questions, questionToSave];
     } else {
-      setQuestions(prev => prev.map(q => q.id === questionToSave.id ? questionToSave : q));
+      updatedQuestionsList = questions.map(q => q.id === questionToSave.id ? questionToSave : q);
     }
+    setQuestions(updatedQuestionsList);
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updatedQuestionsList));
+
     toast({ title: "Başarılı", description: `Soru "${questionToSave.text.tr}" kaydedildi.` });
     setSelectedQuestion(null);
     setIsCreatingNew(false);
@@ -229,7 +250,11 @@ export default function AdminPage() {
 
   const handleDeleteQuestion = () => {
     if (!selectedQuestion || isCreatingNew) return; 
-    setQuestions(prev => prev.filter(q => q.id !== selectedQuestion.id));
+    
+    const updatedQuestionsList = questions.filter(q => q.id !== selectedQuestion.id);
+    setQuestions(updatedQuestionsList);
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updatedQuestionsList));
+
     toast({ title: "Silindi", description: `Soru "${selectedQuestion.text.tr}" silindi.`, variant: "destructive" });
     setSelectedQuestion(null);
   };
@@ -274,7 +299,7 @@ export default function AdminPage() {
                   {isCreatingNew ? "Yeni Soru Oluştur" : `Soruyu Düzenle: ${selectedQuestion.text.tr || 'Başlıksız'}`}
                 </CardTitle>
                 <CardDescription>
-                  Tüm metinler Türkçe olmalıdır. Değişiklikler yereldir ve sayfa yenilendiğinde kaybolur.
+                  Tüm metinler Türkçe olmalıdır. Değişiklikler bu tarayıcıda saklanır.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
@@ -452,5 +477,3 @@ export default function AdminPage() {
     </div>
   );
 }
-
-    
