@@ -1,9 +1,10 @@
 
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type { Question, Choice, MediaItem, LocalizedText } from '@/lib/types';
-import { initialQuestions } from '@/lib/data';
+// import { initialQuestions } from '@/lib/data'; // Artık Firestore'dan yüklenecek
+import { getQuestions, saveQuestion, deleteQuestion } from '@/services/questionService';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,9 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from "@/hooks/use-toast";
-import { PlusCircle, Trash2, Edit3, List, Image as ImageIcon, AudioWaveform, Film } from 'lucide-react';
-
-const LOCAL_STORAGE_KEY = 'yanitmatik_questions';
+import { PlusCircle, Trash2, Edit3, List, Image as ImageIcon, AudioWaveform, Film, Loader2 } from 'lucide-react';
 
 const createEmptyTurkishText = (): LocalizedText => ({ tr: "" });
 
@@ -26,7 +25,7 @@ const createNewChoice = (idSuffix: string): Choice => ({
 });
 
 const createNewQuestion = (): Question => ({
-  id: `newQuestion-${Date.now()}`,
+  id: `newQuestion-${Date.now()}`, // Firestore'a kaydederken bu ID kullanılacak
   text: createEmptyTurkishText(),
   choices: [createNewChoice('1'), createNewChoice('2')],
 });
@@ -35,32 +34,40 @@ export default function AdminPage() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [selectedQuestion, setSelectedQuestion] = useState<Question | null>(null);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   const { toast } = useToast();
 
-  useEffect(() => {
-    let loadedQuestions: Question[];
+  const loadQuestionsFromService = useCallback(async () => {
+    setIsLoading(true);
     try {
-      const storedQuestionsData = localStorage.getItem(LOCAL_STORAGE_KEY);
-      if (storedQuestionsData) {
-        loadedQuestions = JSON.parse(storedQuestionsData);
-      } else {
-        loadedQuestions = JSON.parse(JSON.stringify(initialQuestions));
-      }
-    } catch (error) {
-      console.error("Error loading questions from localStorage, falling back to initial data:", error);
-      loadedQuestions = JSON.parse(JSON.stringify(initialQuestions));
+      const loadedQuestions = await getQuestions();
+      // Gelen veriyi derin kopyalayarak state'e atayalım
+      const processedQuestions = loadedQuestions.map(q => ({
+        ...q,
+        choices: q.choices.map(c => ({
+          ...c,
+          media: Array.isArray(c.media) ? c.media : (c.media ? [c.media] : [])
+        }))
+      }));
+      setQuestions(processedQuestions);
+    } catch (error: any) {
+      console.error("Error loading questions from service:", error);
+      toast({
+        title: "Hata",
+        description: error.message || "Sorular yüklenirken bir sorun oluştu.",
+        variant: "destructive",
+      });
+      // Fallback to empty array or handle appropriately
+      setQuestions([]); 
+    } finally {
+      setIsLoading(false);
     }
-    // Ensure media is always an array after loading (especially for older data or initialQuestions if not perfectly structured)
-    loadedQuestions.forEach(q => {
-        q.choices.forEach(c => {
-            if (!Array.isArray(c.media)) {
-                c.media = c.media ? [c.media] : [];
-            }
-        });
-    });
-    setQuestions(loadedQuestions);
-  }, []);
+  }, [toast]);
+
+  useEffect(() => {
+    loadQuestionsFromService();
+  }, [loadQuestionsFromService]);
 
   const handleSelectQuestion = (questionId: string) => {
     const question = questions.find(q => q.id === questionId);
@@ -86,13 +93,18 @@ export default function AdminPage() {
     updatedChoices[choiceIndex].text.tr = value;
     setSelectedQuestion(prev => prev ? { ...prev, choices: updatedChoices } : null);
   };
-
+  
   const updateOrAddMediaItem = (choiceIndex: number, mediaType: 'image' | 'audio' | 'video', newUrl: string, newAltText?: string) => {
     if (!selectedQuestion) return;
 
     const choicesCopy = JSON.parse(JSON.stringify(selectedQuestion.choices)) as Choice[];
     const choiceToUpdate = choicesCopy[choiceIndex];
     
+    // Ensure media array exists
+    if (!Array.isArray(choiceToUpdate.media)) {
+        choiceToUpdate.media = [];
+    }
+
     let existingMediaItem = choiceToUpdate.media.find(m => m.type === mediaType);
 
     if (existingMediaItem) {
@@ -120,6 +132,11 @@ export default function AdminPage() {
     
     const choicesCopy = JSON.parse(JSON.stringify(selectedQuestion.choices)) as Choice[];
     const choiceToUpdate = choicesCopy[choiceIndex];
+
+    if (!Array.isArray(choiceToUpdate.media)) {
+        choiceToUpdate.media = [];
+    }
+    
     let mediaItem = choiceToUpdate.media.find(m => m.type === mediaType);
 
     if (!mediaItem && property === 'url' && value) { 
@@ -128,7 +145,6 @@ export default function AdminPage() {
             mediaItem.altText = createEmptyTurkishText();
         }
         choiceToUpdate.media.push(mediaItem);
-         // Re-find mediaItem after pushing
         mediaItem = choiceToUpdate.media.find(m => m.type === mediaType)!;
     } else if (!mediaItem) {
         return; 
@@ -136,7 +152,7 @@ export default function AdminPage() {
     
     if (property === 'url') {
         mediaItem.url = value;
-        if (!value && !mediaItem.url.startsWith('data:')) { // If URL is cleared AND it's not a data URI, remove the media item
+        if (!value && !mediaItem.url.startsWith('data:')) { 
             choiceToUpdate.media = choiceToUpdate.media.filter(m => m.type !== mediaType);
         }
     } else if (property === 'altText' && mediaType === 'image') {
@@ -174,13 +190,20 @@ export default function AdminPage() {
   const handleRemoveChoiceMedia = (choiceIndex: number, mediaType: 'image' | 'audio' | 'video') => {
     if (!selectedQuestion) return;
     const choicesCopy = JSON.parse(JSON.stringify(selectedQuestion.choices)) as Choice[];
+    if (!Array.isArray(choicesCopy[choiceIndex].media)) {
+        choicesCopy[choiceIndex].media = [];
+    }
     choicesCopy[choiceIndex].media = choicesCopy[choiceIndex].media.filter(m => m.type !== mediaType);
     setSelectedQuestion(prev => prev ? { ...prev, choices: choicesCopy } : null);
     toast({ title: "Medya Kaldırıldı", description: `${mediaType === 'image' ? 'Resim' : (mediaType === 'audio' ? 'Ses' : 'Video')} medyası kaldırıldı.`});
-    const fileInput = document.getElementById(`media-file-${choicesCopy[choiceIndex].id}-${mediaType}`) as HTMLInputElement;
+    
+    const fileInputId = `media-file-${choicesCopy[choiceIndex].id}-${mediaType}`;
+    const fileInput = document.getElementById(fileInputId) as HTMLInputElement;
     if (fileInput) fileInput.value = "";
-    const urlInput = document.getElementById(`media-url-${choicesCopy[choiceIndex].id}-${mediaType}`) as HTMLInputElement;
-    if (urlInput) urlInput.value = ""; // Clear URL input as well
+
+    const urlInputId = `media-url-${choicesCopy[choiceIndex].id}-${mediaType}`;
+    const urlInput = document.getElementById(urlInputId) as HTMLInputElement;
+    if (urlInput) urlInput.value = "";
   };
 
   const handleAddChoiceToQuestion = () => {
@@ -202,8 +225,9 @@ export default function AdminPage() {
     } : null);
   };
 
-  const handleSaveQuestion = () => {
+  const handleSaveQuestion = async () => {
     if (!selectedQuestion) return;
+    setIsLoading(true);
 
     let missingText = false;
     if (!selectedQuestion.text.tr) {
@@ -213,6 +237,7 @@ export default function AdminPage() {
         if (!choice.text.tr) {
             missingText = true;
         }
+        if(!Array.isArray(choice.media)) choice.media = []; // Ensure media is an array
         choice.media.forEach(m => {
             if (m.type === 'image' && (!m.altText || !m.altText.tr)) {
                 if (!m.altText) m.altText = createEmptyTurkishText();
@@ -229,39 +254,64 @@ export default function AdminPage() {
             variant: "destructive",
             duration: 5000,
         });
+        setIsLoading(false);
         return;
     }
     
-    const questionToSave = JSON.parse(JSON.stringify(selectedQuestion));
-    let updatedQuestionsList;
-
-    if (isCreatingNew) {
-      updatedQuestionsList = [...questions, questionToSave];
-    } else {
-      updatedQuestionsList = questions.map(q => q.id === questionToSave.id ? questionToSave : q);
+    try {
+      // Derin kopya oluşturarak Firestore'a gönderelim
+      const questionToSave = JSON.parse(JSON.stringify(selectedQuestion));
+      await saveQuestion(questionToSave);
+      toast({ title: "Başarılı", description: `Soru "${questionToSave.text.tr}" Firestore'a kaydedildi.` });
+      setSelectedQuestion(null);
+      setIsCreatingNew(false);
+      await loadQuestionsFromService(); // Listeyi güncelle
+    } catch (error: any) {
+      console.error("Error saving question:", error);
+      toast({
+        title: "Kaydetme Hatası",
+        description: error.message || "Soru kaydedilirken bir sorun oluştu.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
     }
-    setQuestions(updatedQuestionsList);
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updatedQuestionsList));
-
-    toast({ title: "Başarılı", description: `Soru "${questionToSave.text.tr}" kaydedildi.` });
-    setSelectedQuestion(null);
-    setIsCreatingNew(false);
   };
 
-  const handleDeleteQuestion = () => {
+  const handleDeleteQuestion = async () => {
     if (!selectedQuestion || isCreatingNew) return; 
+    setIsLoading(true);
     
-    const updatedQuestionsList = questions.filter(q => q.id !== selectedQuestion.id);
-    setQuestions(updatedQuestionsList);
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updatedQuestionsList));
-
-    toast({ title: "Silindi", description: `Soru "${selectedQuestion.text.tr}" silindi.`, variant: "destructive" });
-    setSelectedQuestion(null);
+    try {
+      await deleteQuestion(selectedQuestion.id);
+      toast({ title: "Silindi", description: `Soru "${selectedQuestion.text.tr}" Firestore'dan silindi.`, variant: "default" }); // variant destructive olabilir
+      setSelectedQuestion(null);
+      await loadQuestionsFromService(); // Listeyi güncelle
+    } catch (error: any) {
+      console.error("Error deleting question:", error);
+      toast({
+        title: "Silme Hatası",
+        description: error.message || "Soru silinirken bir sorun oluştu.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const getChoiceMediaItem = (choice: Choice | undefined, type: 'image' | 'audio' | 'video'): MediaItem | undefined => {
-    return choice?.media?.find(m => m.type === type);
+    if (!choice || !Array.isArray(choice.media)) return undefined;
+    return choice.media.find(m => m.type === type);
   };
+  
+  if (isLoading && questions.length === 0 && !selectedQuestion) {
+    return (
+        <div className="min-h-screen flex flex-col items-center justify-center">
+            <Loader2 className="h-12 w-12 animate-spin text-primary" />
+            <p className="mt-4 text-muted-foreground">Sorular yükleniyor...</p>
+        </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -271,23 +321,32 @@ export default function AdminPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center"><List className="mr-2 h-5 w-5" /> Sorular</CardTitle>
-              <Button onClick={handleAddNewQuestion} size="sm" className="w-full mt-2">
+              <Button onClick={handleAddNewQuestion} size="sm" className="w-full mt-2" disabled={isLoading}>
                 <PlusCircle className="mr-2 h-4 w-4" /> Yeni Soru Ekle
               </Button>
             </CardHeader>
             <CardContent>
-              <ScrollArea className="h-[calc(100vh-280px)]">
-                {questions.map(q => (
-                  <Button
-                    key={q.id}
-                    variant={selectedQuestion?.id === q.id && !isCreatingNew ? "secondary" : "ghost"}
-                    className="w-full justify-start mb-2 text-left h-auto py-2"
-                    onClick={() => handleSelectQuestion(q.id)}
-                  >
-                    {q.text.tr || "Başlıksız Soru"}
-                  </Button>
-                ))}
-              </ScrollArea>
+              {isLoading && questions.length === 0 ? (
+                <div className="flex justify-center items-center h-[calc(100vh-320px)]">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                </div>
+              ) : questions.length === 0 && !isLoading ? (
+                 <p className="text-center text-muted-foreground py-4">Gösterilecek soru bulunmuyor.</p>
+              ) : (
+                <ScrollArea className="h-[calc(100vh-280px)]">
+                  {questions.map(q => (
+                    <Button
+                      key={q.id}
+                      variant={selectedQuestion?.id === q.id && !isCreatingNew ? "secondary" : "ghost"}
+                      className="w-full justify-start mb-2 text-left h-auto py-2"
+                      onClick={() => handleSelectQuestion(q.id)}
+                      disabled={isLoading}
+                    >
+                      {q.text.tr || "Başlıksız Soru"}
+                    </Button>
+                  ))}
+                </ScrollArea>
+              )}
             </CardContent>
           </Card>
 
@@ -299,7 +358,8 @@ export default function AdminPage() {
                   {isCreatingNew ? "Yeni Soru Oluştur" : `Soruyu Düzenle: ${selectedQuestion.text.tr || 'Başlıksız'}`}
                 </CardTitle>
                 <CardDescription>
-                  Tüm metinler Türkçe olmalıdır. Değişiklikler bu tarayıcıda saklanır.
+                  Tüm metinler Türkçe olmalıdır. Değişiklikler Firestore'da saklanır.
+                  {isLoading && <Loader2 className="inline-block ml-2 h-4 w-4 animate-spin" />}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
@@ -312,6 +372,7 @@ export default function AdminPage() {
                         value={selectedQuestion.text.tr || ""}
                         onChange={(e) => handleQuestionTextChange(e.target.value)}
                         placeholder="Türkçe soru metnini girin"
+                        disabled={isLoading}
                       />
                     </div>
                   </div>
@@ -326,7 +387,7 @@ export default function AdminPage() {
                       <Card key={choice.id} className="p-4 space-y-3 bg-muted/30 mb-4">
                         <div className="flex justify-between items-center">
                           <h4 className="font-medium">Seçenek {choiceIndex + 1}</h4>
-                          <Button variant="ghost" size="icon" onClick={() => handleRemoveChoiceFromQuestion(choiceIndex)} aria-label="Seçeneği kaldır">
+                          <Button variant="ghost" size="icon" onClick={() => handleRemoveChoiceFromQuestion(choiceIndex)} aria-label="Seçeneği kaldır" disabled={isLoading}>
                             <Trash2 className="h-4 w-4 text-destructive"/>
                           </Button>
                         </div>
@@ -337,6 +398,7 @@ export default function AdminPage() {
                             value={choice.text.tr || ""}
                             onChange={(e) => handleChoiceTextChange(choiceIndex, e.target.value)}
                             placeholder="Türkçe seçenek metni"
+                            disabled={isLoading}
                           />
                         </div>
                         
@@ -349,6 +411,7 @@ export default function AdminPage() {
                               accept="image/*"
                               onChange={(e) => handleChoiceMediaFileUpload(choiceIndex, 'image', e.target.files?.[0] || null)}
                               className="mt-1 w-full"
+                              disabled={isLoading}
                           />
                           <Input
                               id={`media-url-${choice.id}-image`}
@@ -356,12 +419,12 @@ export default function AdminPage() {
                               onChange={(e) => handleChoiceMediaPropertyChange(choiceIndex, 'image', 'url', e.target.value)}
                               placeholder="Veya Resim URL'si yapıştırın"
                               className="mt-1 w-full"
-                              disabled={!!(imageMedia?.url && imageMedia.url.startsWith('data:'))}
+                              disabled={isLoading || !!(imageMedia?.url && imageMedia.url.startsWith('data:'))}
                           />
                           {imageMedia?.url?.startsWith('data:') && (
                               <p className="text-xs text-muted-foreground mt-1">
                                   Yüklenen resim Data URI olarak saklandı.
-                                  <Button variant="link" size="sm" className="p-0 h-auto ml-1 text-destructive" onClick={() => handleRemoveChoiceMedia(choiceIndex, 'image')}>Temizle</Button>
+                                  <Button variant="link" size="sm" className="p-0 h-auto ml-1 text-destructive" onClick={() => handleRemoveChoiceMedia(choiceIndex, 'image')} disabled={isLoading}>Temizle</Button>
                               </p>
                           )}
                           {imageMedia && (
@@ -371,10 +434,11 @@ export default function AdminPage() {
                                 onChange={(e) => handleChoiceMediaPropertyChange(choiceIndex, 'image', 'altText', e.target.value)}
                                 placeholder="Resim Alternatif Metni (Türkçe)"
                                 className="mt-1 w-full"
+                                disabled={isLoading}
                             />
                           )}
                            {imageMedia && (
-                             <Button variant="outline" size="sm" onClick={() => handleRemoveChoiceMedia(choiceIndex, 'image')} className="mt-1">
+                             <Button variant="outline" size="sm" onClick={() => handleRemoveChoiceMedia(choiceIndex, 'image')} className="mt-1" disabled={isLoading}>
                                 <Trash2 className="mr-1 h-3 w-3" /> Resmi Temizle
                             </Button>
                            )}
@@ -389,6 +453,7 @@ export default function AdminPage() {
                                 accept="audio/*"
                                 onChange={(e) => handleChoiceMediaFileUpload(choiceIndex, 'audio', e.target.files?.[0] || null)}
                                 className="mt-1 w-full"
+                                disabled={isLoading}
                             />
                             <Input
                                 id={`media-url-${choice.id}-audio`}
@@ -396,16 +461,16 @@ export default function AdminPage() {
                                 onChange={(e) => handleChoiceMediaPropertyChange(choiceIndex, 'audio', 'url', e.target.value)}
                                 placeholder="Veya Ses URL'si yapıştırın"
                                 className="mt-1 w-full"
-                                disabled={!!(audioMedia?.url && audioMedia.url.startsWith('data:'))}
+                                disabled={isLoading || !!(audioMedia?.url && audioMedia.url.startsWith('data:'))}
                             />
                             {audioMedia?.url?.startsWith('data:') && (
                                 <p className="text-xs text-muted-foreground mt-1">
                                     Yüklenen ses Data URI olarak saklandı.
-                                    <Button variant="link" size="sm" className="p-0 h-auto ml-1 text-destructive" onClick={() => handleRemoveChoiceMedia(choiceIndex, 'audio')}>Temizle</Button>
+                                    <Button variant="link" size="sm" className="p-0 h-auto ml-1 text-destructive" onClick={() => handleRemoveChoiceMedia(choiceIndex, 'audio')} disabled={isLoading}>Temizle</Button>
                                 </p>
                             )}
                            {audioMedia && (
-                             <Button variant="outline" size="sm" onClick={() => handleRemoveChoiceMedia(choiceIndex, 'audio')} className="mt-1">
+                             <Button variant="outline" size="sm" onClick={() => handleRemoveChoiceMedia(choiceIndex, 'audio')} className="mt-1" disabled={isLoading}>
                                 <Trash2 className="mr-1 h-3 w-3" /> Sesi Temizle
                             </Button>
                            )}
@@ -420,6 +485,7 @@ export default function AdminPage() {
                                 accept="video/*"
                                 onChange={(e) => handleChoiceMediaFileUpload(choiceIndex, 'video', e.target.files?.[0] || null)}
                                 className="mt-1 w-full"
+                                disabled={isLoading}
                             />
                             <Input
                                 id={`media-url-${choice.id}-video`}
@@ -427,16 +493,16 @@ export default function AdminPage() {
                                 onChange={(e) => handleChoiceMediaPropertyChange(choiceIndex, 'video', 'url', e.target.value)}
                                 placeholder="Veya Video URL'si yapıştırın"
                                 className="mt-1 w-full"
-                                disabled={!!(videoMedia?.url && videoMedia.url.startsWith('data:'))}
+                                disabled={isLoading || !!(videoMedia?.url && videoMedia.url.startsWith('data:'))}
                             />
                             {videoMedia?.url?.startsWith('data:') && (
                                 <p className="text-xs text-muted-foreground mt-1">
                                     Yüklenen video Data URI olarak saklandı.
-                                    <Button variant="link" size="sm" className="p-0 h-auto ml-1 text-destructive" onClick={() => handleRemoveChoiceMedia(choiceIndex, 'video')}>Temizle</Button>
+                                    <Button variant="link" size="sm" className="p-0 h-auto ml-1 text-destructive" onClick={() => handleRemoveChoiceMedia(choiceIndex, 'video')} disabled={isLoading}>Temizle</Button>
                                 </p>
                             )}
                            {videoMedia && (
-                             <Button variant="outline" size="sm" onClick={() => handleRemoveChoiceMedia(choiceIndex, 'video')} className="mt-1">
+                             <Button variant="outline" size="sm" onClick={() => handleRemoveChoiceMedia(choiceIndex, 'video')} className="mt-1" disabled={isLoading}>
                                 <Trash2 className="mr-1 h-3 w-3" /> Videoyu Temizle
                             </Button>
                            )}
@@ -444,15 +510,21 @@ export default function AdminPage() {
                       </Card>
                     );
                   })}
-                  <Button variant="outline" onClick={handleAddChoiceToQuestion} className="w-full">
+                  <Button variant="outline" onClick={handleAddChoiceToQuestion} className="w-full" disabled={isLoading}>
                     <PlusCircle className="mr-2 h-4 w-4" /> Seçenek Ekle
                   </Button>
                 </ScrollArea>
                 <div className="flex justify-end gap-2 pt-4 border-t">
                   {selectedQuestion && !isCreatingNew && (
-                     <Button variant="destructive" onClick={handleDeleteQuestion}>Soruyu Sil</Button>
+                     <Button variant="destructive" onClick={handleDeleteQuestion} disabled={isLoading}>
+                        {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Soruyu Sil
+                     </Button>
                   )}
-                  <Button onClick={handleSaveQuestion}>Soruyu Kaydet</Button>
+                  <Button onClick={handleSaveQuestion} disabled={isLoading}>
+                    {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Soruyu Kaydet
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -462,17 +534,26 @@ export default function AdminPage() {
                 <CardTitle>Soru Seçilmedi</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-muted-foreground">Düzenlemek için listeden bir soru seçin veya yeni bir tane ekleyin.</p>
-                 <Button onClick={handleAddNewQuestion} size="lg" className="mt-6">
-                    <PlusCircle className="mr-2 h-5 w-5" /> Yeni Soru Ekle
-                </Button>
+                 {isLoading ? (
+                    <div className="flex flex-col items-center">
+                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                        <p className="mt-2 text-muted-foreground">Yükleniyor...</p>
+                    </div>
+                 ) : (
+                    <>
+                        <p className="text-muted-foreground">Düzenlemek için listeden bir soru seçin veya yeni bir tane ekleyin.</p>
+                        <Button onClick={handleAddNewQuestion} size="lg" className="mt-6" disabled={isLoading}>
+                            <PlusCircle className="mr-2 h-5 w-5" /> Yeni Soru Ekle
+                        </Button>
+                    </>
+                 )}
               </CardContent>
             </Card>
           )}
         </div>
       </main>
       <footer className="py-4 text-center text-sm text-muted-foreground border-t">
-        Yönetici Paneli - YanıtMatik
+        Yönetici Paneli - YanıtMatik (Firestore Bağlı)
       </footer>
     </div>
   );

@@ -1,17 +1,17 @@
 
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type { LanguageCode, Question, Choice, MediaItem } from '@/lib/types';
-import { initialQuestions } from '@/lib/data';
+// import { initialQuestions } from '@/lib/data'; // Artık Firestore'dan yüklenecek
+import { getQuestions } from '@/services/questionService';
 import { QuestionDisplay } from '@/components/user/QuestionDisplay';
 import { MediaViewer } from '@/components/user/MediaViewer';
 import { Button } from '@/components/ui/button';
 import { Header } from '@/components/Header';
-import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, RefreshCw, Loader2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
-
-const LOCAL_STORAGE_KEY = 'yanitmatik_questions';
+import { useToast } from "@/hooks/use-toast";
 
 export default function UserPage() {
   const [currentLanguage, setCurrentLanguage] = useState<LanguageCode>('tr');
@@ -20,35 +20,46 @@ export default function UserPage() {
   const [selectedChoice, setSelectedChoice] = useState<Choice | null>(null);
   const [visualMediaForViewer, setVisualMediaForViewer] = useState<MediaItem | null>(null);
   const [audioMediaForViewer, setAudioMediaForViewer] = useState<MediaItem | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const { toast } = useToast();
+
+  const loadQuestionsFromService = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const loadedQuestions = await getQuestions();
+       // Gelen veriyi derin kopyalayarak ve medya formatını düzelterek state'e atayalım
+      const processedQuestions = loadedQuestions.map(q => ({
+        ...q,
+        choices: q.choices.map(c => ({
+          ...c,
+          media: Array.isArray(c.media) ? c.media : (c.media ? [c.media] : [])
+        }))
+      }));
+      setQuestions(processedQuestions);
+      setCurrentQuestionIndex(0); // Sorular yüklendiğinde ilk soruya git
+      resetMediaAndChoice();
+    } catch (error: any) {
+      console.error("Error loading questions for user page:", error);
+      toast({
+        title: "Hata",
+        description: error.message || "Sorular yüklenirken bir sorun oluştu.",
+        variant: "destructive",
+      });
+      setQuestions([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [toast]);
+
 
   useEffect(() => {
-    let loadedQuestions: Question[];
-    try {
-      const storedQuestionsData = localStorage.getItem(LOCAL_STORAGE_KEY);
-      if (storedQuestionsData) {
-        loadedQuestions = JSON.parse(storedQuestionsData);
-      } else {
-        loadedQuestions = JSON.parse(JSON.stringify(initialQuestions));
-      }
-    } catch (error) {
-      console.error("Error loading questions from localStorage for user page, falling back to initial data:", error);
-      loadedQuestions = JSON.parse(JSON.stringify(initialQuestions));
-    }
-     loadedQuestions.forEach(q => {
-        q.choices.forEach(c => {
-            if (!Array.isArray(c.media)) {
-                c.media = c.media ? [c.media] : [];
-            }
-        });
-    });
-    setQuestions(loadedQuestions);
-    setCurrentQuestionIndex(0);
-    resetMediaAndChoice();
-  }, []);
+    loadQuestionsFromService();
+  }, [loadQuestionsFromService]);
 
   const handleLanguageChange = (lang: LanguageCode) => {
     setCurrentLanguage(lang);
-    resetMediaAndChoice(); // Reset choice and media when language changes, audio should stop
+    // Dil değiştiğinde medya ve seçimi sıfırla, ama soru indeksini koru
+    resetMediaAndChoice(); 
   };
 
   const resetMediaAndChoice = () => {
@@ -61,11 +72,11 @@ export default function UserPage() {
     setSelectedChoice(choice);
 
     const image = choice.media.find(m => m.type === 'image');
-    const video = choice.media.find(m => m.type === 'video'); // Video is also a visual
+    const video = choice.media.find(m => m.type === 'video');
     const audio = choice.media.find(m => m.type === 'audio');
 
-    setVisualMediaForViewer(image || video || null); // Prioritize image, then video
-    setAudioMediaForViewer(audio || null); // Set audio if present
+    setVisualMediaForViewer(image || video || null);
+    setAudioMediaForViewer(audio || null);
   };
 
   const handleNextQuestion = () => {
@@ -82,41 +93,39 @@ export default function UserPage() {
     }
   };
   
-  const handleRestart = () => {
-    let loadedQuestions: Question[];
-    try {
-        const storedQuestionsData = localStorage.getItem(LOCAL_STORAGE_KEY);
-        if (storedQuestionsData) {
-            loadedQuestions = JSON.parse(storedQuestionsData);
-        } else {
-            loadedQuestions = JSON.parse(JSON.stringify(initialQuestions));
-        }
-    } catch (error) {
-        console.error("Error reloading questions on restart, falling back to initial data:", error);
-        loadedQuestions = JSON.parse(JSON.stringify(initialQuestions));
-    }
-    loadedQuestions.forEach(q => {
-        q.choices.forEach(c => {
-            if (!Array.isArray(c.media)) {
-                c.media = c.media ? [c.media] : [];
-            }
-        });
-    });
-    setQuestions(loadedQuestions);
-
-    setCurrentQuestionIndex(0);
-    resetMediaAndChoice();
+  const handleRestart = async () => {
+    // Yeniden başlatırken soruları servisten tekrar yükle
+    await loadQuestionsFromService();
+    // setCurrentQuestionIndex(0) ve resetMediaAndChoice() zaten loadQuestionsFromService içinde çağrılıyor.
   };
 
   const currentQuestion = questions[currentQuestionIndex];
+
+  if (isLoading) {
+    return (
+        <div className="min-h-screen flex flex-col items-center justify-center bg-background">
+             <Header currentLanguage={currentLanguage} onLanguageChange={handleLanguageChange} />
+            <main className="flex-grow container mx-auto px-4 py-8 flex flex-col items-center justify-center">
+                <Loader2 className="h-12 w-12 animate-spin text-primary" />
+                <p className="mt-4 text-muted-foreground">Sorular yükleniyor...</p>
+            </main>
+             <footer className="py-4 text-center text-sm text-muted-foreground border-t">
+                © {new Date().getFullYear()} YanıtMatik. Firestore Bağlı.
+            </footer>
+        </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <Header currentLanguage={currentLanguage} onLanguageChange={handleLanguageChange} />
       <main className="flex-grow container mx-auto px-4 py-8 flex flex-col items-center">
-        {questions.length === 0 ? (
+        {questions.length === 0 && !isLoading ? (
           <Card className="w-full max-w-2xl p-8 text-center">
-            <p className="text-xl text-muted-foreground">Sorular yükleniyor veya hiç soru bulunmuyor.</p>
+            <p className="text-xl text-muted-foreground">Gösterilecek soru bulunmuyor veya yüklenemedi.</p>
+             <Button onClick={handleRestart} variant="default" className="mt-4">
+               <RefreshCw className="mr-2 h-4 w-4" /> Yeniden Yükle
+            </Button>
           </Card>
         ) : currentQuestion ? (
           <>
@@ -144,31 +153,35 @@ export default function UserPage() {
             )}
 
             <div className="mt-8 flex justify-between w-full max-w-2xl">
-              <Button onClick={handlePreviousQuestion} disabled={currentQuestionIndex === 0} variant="outline">
+              <Button onClick={handlePreviousQuestion} disabled={currentQuestionIndex === 0 || isLoading} variant="outline">
                 <ChevronLeft className="mr-2 h-4 w-4" /> Önceki
               </Button>
               {currentQuestionIndex === questions.length - 1 && questions.length > 0 ? (
-                 <Button onClick={handleRestart} variant="default">
-                    <RefreshCw className="mr-2 h-4 w-4" /> Testi Yeniden Başlat
+                 <Button onClick={handleRestart} variant="default" disabled={isLoading}>
+                    {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Testi Yeniden Başlat
                  </Button>
               ) : (
-                <Button onClick={handleNextQuestion} disabled={!selectedChoice || currentQuestionIndex >= questions.length - 1}>
+                <Button onClick={handleNextQuestion} disabled={!selectedChoice || currentQuestionIndex >= questions.length - 1 || isLoading}>
+                    {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     Sonraki <ChevronRight className="ml-2 h-4 w-4" />
                 </Button>
               )}
             </div>
           </>
         ) : (
+           !isLoading && questions.length > 0 && // Sadece sorular varsa ve yükleme bittiyse bu bloğu göster
           <Card className="w-full max-w-2xl p-8 text-center">
             <p className="text-xl">Tüm soruları tamamladınız!</p>
-            <Button onClick={handleRestart} variant="default" className="mt-4">
-               <RefreshCw className="mr-2 h-4 w-4" /> Testi Yeniden Başlat
+            <Button onClick={handleRestart} variant="default" className="mt-4" disabled={isLoading}>
+               {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+               Testi Yeniden Başlat
             </Button>
           </Card>
         )}
       </main>
       <footer className="py-4 text-center text-sm text-muted-foreground border-t">
-        © {new Date().getFullYear()} YanıtMatik. Tüm hakları saklıdır.
+        © {new Date().getFullYear()} YanıtMatik. Firestore Bağlı.
       </footer>
     </div>
   );
