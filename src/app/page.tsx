@@ -27,7 +27,6 @@ export default function UserPage() {
     setIsLoading(true);
     try {
       const loadedQuestions = await getQuestions();
-       // Gelen veriyi derin kopyalayarak ve medya formatını düzelterek state'e atayalım
       const processedQuestions = loadedQuestions.map(q => ({
         ...q,
         choices: q.choices.map(c => ({
@@ -36,13 +35,17 @@ export default function UserPage() {
         }))
       }));
       setQuestions(processedQuestions);
-      setCurrentQuestionIndex(0); // Sorular yüklendiğinde ilk soruya git
+      setCurrentQuestionIndex(0);
       resetMediaAndChoice();
     } catch (error: any) {
       console.error("Error loading questions for user page:", error);
+      let description = error.message || "Sorular yüklenirken bir sorun oluştu.";
+      if (error.message === "An unexpected response was received from the server.") {
+        description = "Sunucudan beklenmedik bir yanıt alındı. Lütfen sunucu loglarını (terminal) ve Firestore güvenlik kurallarınızı kontrol edin.";
+      }
       toast({
         title: "Hata",
-        description: error.message || "Sorular yüklenirken bir sorun oluştu.",
+        description: description,
         variant: "destructive",
       });
       setQuestions([]);
@@ -58,8 +61,7 @@ export default function UserPage() {
 
   const handleLanguageChange = (lang: LanguageCode) => {
     setCurrentLanguage(lang);
-    // Dil değiştiğinde medya ve seçimi sıfırla, ama soru indeksini koru
-    resetMediaAndChoice(); 
+    resetMediaAndChoice();
   };
 
   const resetMediaAndChoice = () => {
@@ -92,11 +94,9 @@ export default function UserPage() {
       resetMediaAndChoice();
     }
   };
-  
+
   const handleRestart = async () => {
-    // Yeniden başlatırken soruları servisten tekrar yükle
     await loadQuestionsFromService();
-    // setCurrentQuestionIndex(0) ve resetMediaAndChoice() zaten loadQuestionsFromService içinde çağrılıyor.
   };
 
   const currentQuestion = questions[currentQuestionIndex];
@@ -135,7 +135,7 @@ export default function UserPage() {
               onAnswerSelect={handleAnswerSelect}
               selectedChoiceId={selectedChoice?.id}
             />
-            
+
             {(visualMediaForViewer || audioMediaForViewer) && (
               <MediaViewer
                 visualMedia={visualMediaForViewer}
@@ -170,7 +170,7 @@ export default function UserPage() {
             </div>
           </>
         ) : (
-           !isLoading && questions.length > 0 && // Sadece sorular varsa ve yükleme bittiyse bu bloğu göster
+           !isLoading && questions.length > 0 && 
           <Card className="w-full max-w-2xl p-8 text-center">
             <p className="text-xl">Tüm soruları tamamladınız!</p>
             <Button onClick={handleRestart} variant="default" className="mt-4" disabled={isLoading}>
@@ -186,3 +186,5 @@ export default function UserPage() {
     </div>
   );
 }
+
+    

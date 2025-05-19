@@ -42,7 +42,6 @@ export default function AdminPage() {
     setIsLoading(true);
     try {
       const loadedQuestions = await getQuestions();
-      // Gelen veriyi derin kopyalayarak state'e atayalım
       const processedQuestions = loadedQuestions.map(q => ({
         ...q,
         choices: q.choices.map(c => ({
@@ -53,13 +52,16 @@ export default function AdminPage() {
       setQuestions(processedQuestions);
     } catch (error: any) {
       console.error("Error loading questions from service:", error);
+      let description = error.message || "Sorular yüklenirken bir sorun oluştu.";
+      if (error.message === "An unexpected response was received from the server.") {
+        description = "Sunucudan beklenmedik bir yanıt alındı. Lütfen sunucu loglarını (terminal) ve Firestore güvenlik kurallarınızı kontrol edin.";
+      }
       toast({
         title: "Hata",
-        description: error.message || "Sorular yüklenirken bir sorun oluştu.",
+        description: description,
         variant: "destructive",
       });
-      // Fallback to empty array or handle appropriately
-      setQuestions([]); 
+      setQuestions([]);
     } finally {
       setIsLoading(false);
     }
@@ -72,7 +74,7 @@ export default function AdminPage() {
   const handleSelectQuestion = (questionId: string) => {
     const question = questions.find(q => q.id === questionId);
     if (question) {
-      setSelectedQuestion(JSON.parse(JSON.stringify(question))); 
+      setSelectedQuestion(JSON.parse(JSON.stringify(question)));
       setIsCreatingNew(false);
     }
   };
@@ -86,21 +88,20 @@ export default function AdminPage() {
     if (!selectedQuestion) return;
     setSelectedQuestion(prev => prev ? { ...prev, text: { ...prev.text, tr: value } } : null);
   };
-  
+
   const handleChoiceTextChange = (choiceIndex: number, value: string) => {
     if (!selectedQuestion) return;
     const updatedChoices = JSON.parse(JSON.stringify(selectedQuestion.choices));
     updatedChoices[choiceIndex].text.tr = value;
     setSelectedQuestion(prev => prev ? { ...prev, choices: updatedChoices } : null);
   };
-  
+
   const updateOrAddMediaItem = (choiceIndex: number, mediaType: 'image' | 'audio' | 'video', newUrl: string, newAltText?: string) => {
     if (!selectedQuestion) return;
 
     const choicesCopy = JSON.parse(JSON.stringify(selectedQuestion.choices)) as Choice[];
     const choiceToUpdate = choicesCopy[choiceIndex];
-    
-    // Ensure media array exists
+
     if (!Array.isArray(choiceToUpdate.media)) {
         choiceToUpdate.media = [];
     }
@@ -129,17 +130,17 @@ export default function AdminPage() {
 
   const handleChoiceMediaPropertyChange = (choiceIndex: number, mediaType: 'image' | 'audio' | 'video', property: 'url' | 'altText', value: string) => {
     if (!selectedQuestion) return;
-    
+
     const choicesCopy = JSON.parse(JSON.stringify(selectedQuestion.choices)) as Choice[];
     const choiceToUpdate = choicesCopy[choiceIndex];
 
     if (!Array.isArray(choiceToUpdate.media)) {
         choiceToUpdate.media = [];
     }
-    
+
     let mediaItem = choiceToUpdate.media.find(m => m.type === mediaType);
 
-    if (!mediaItem && property === 'url' && value) { 
+    if (!mediaItem && property === 'url' && value) {
         mediaItem = { type: mediaType, url: '' };
         if (mediaType === 'image') {
             mediaItem.altText = createEmptyTurkishText();
@@ -147,33 +148,33 @@ export default function AdminPage() {
         choiceToUpdate.media.push(mediaItem);
         mediaItem = choiceToUpdate.media.find(m => m.type === mediaType)!;
     } else if (!mediaItem) {
-        return; 
+        return;
     }
-    
+
     if (property === 'url') {
         mediaItem.url = value;
-        if (!value && !mediaItem.url.startsWith('data:')) { 
+        if (!value && !mediaItem.url.startsWith('data:')) {
             choiceToUpdate.media = choiceToUpdate.media.filter(m => m.type !== mediaType);
         }
     } else if (property === 'altText' && mediaType === 'image') {
         if (!mediaItem.altText) mediaItem.altText = createEmptyTurkishText();
         mediaItem.altText.tr = value;
     }
-    
+
     setSelectedQuestion(prev => prev ? { ...prev, choices: choicesCopy } : null);
   };
-  
+
   const handleChoiceMediaFileUpload = (choiceIndex: number, mediaType: 'image' | 'audio' | 'video', file: File | null) => {
     if (!selectedQuestion) return;
 
-    if (!file) { 
+    if (!file) {
         handleRemoveChoiceMedia(choiceIndex, mediaType);
         toast({ title: "Dosya Temizlendi", description: "Daha önce seçilen dosya kaldırıldı." });
         const fileInput = document.getElementById(`media-file-${selectedQuestion.choices[choiceIndex].id}-${mediaType}`) as HTMLInputElement;
         if (fileInput) fileInput.value = "";
         return;
     }
-    
+
     const reader = new FileReader();
     reader.onloadend = () => {
         const dataUrl = reader.result as string;
@@ -196,7 +197,7 @@ export default function AdminPage() {
     choicesCopy[choiceIndex].media = choicesCopy[choiceIndex].media.filter(m => m.type !== mediaType);
     setSelectedQuestion(prev => prev ? { ...prev, choices: choicesCopy } : null);
     toast({ title: "Medya Kaldırıldı", description: `${mediaType === 'image' ? 'Resim' : (mediaType === 'audio' ? 'Ses' : 'Video')} medyası kaldırıldı.`});
-    
+
     const fileInputId = `media-file-${choicesCopy[choiceIndex].id}-${mediaType}`;
     const fileInput = document.getElementById(fileInputId) as HTMLInputElement;
     if (fileInput) fileInput.value = "";
@@ -237,11 +238,11 @@ export default function AdminPage() {
         if (!choice.text.tr) {
             missingText = true;
         }
-        if(!Array.isArray(choice.media)) choice.media = []; // Ensure media is an array
+        if(!Array.isArray(choice.media)) choice.media = [];
         choice.media.forEach(m => {
             if (m.type === 'image' && (!m.altText || !m.altText.tr)) {
                 if (!m.altText) m.altText = createEmptyTurkishText();
-                m.altText.tr = "Resim için alternatif metin"; 
+                m.altText.tr = "Resim için alternatif metin";
                 toast({ title: "Uyarı", description: `Bir resim için varsayılan alternatif metin eklendi. Lütfen güncelleyin.`, variant: "default", duration: 4000 });
             }
         });
@@ -257,20 +258,23 @@ export default function AdminPage() {
         setIsLoading(false);
         return;
     }
-    
+
     try {
-      // Derin kopya oluşturarak Firestore'a gönderelim
       const questionToSave = JSON.parse(JSON.stringify(selectedQuestion));
       await saveQuestion(questionToSave);
       toast({ title: "Başarılı", description: `Soru "${questionToSave.text.tr}" Firestore'a kaydedildi.` });
       setSelectedQuestion(null);
       setIsCreatingNew(false);
-      await loadQuestionsFromService(); // Listeyi güncelle
+      await loadQuestionsFromService();
     } catch (error: any) {
       console.error("Error saving question:", error);
+      let description = error.message || "Soru kaydedilirken bir sorun oluştu.";
+      if (error.message === "An unexpected response was received from the server.") {
+        description = "Sunucudan beklenmedik bir yanıt alındı. Lütfen sunucu loglarını (terminal) ve Firestore güvenlik kurallarınızı kontrol edin.";
+      }
       toast({
         title: "Kaydetme Hatası",
-        description: error.message || "Soru kaydedilirken bir sorun oluştu.",
+        description: description,
         variant: "destructive",
       });
     } finally {
@@ -279,19 +283,23 @@ export default function AdminPage() {
   };
 
   const handleDeleteQuestion = async () => {
-    if (!selectedQuestion || isCreatingNew) return; 
+    if (!selectedQuestion || isCreatingNew) return;
     setIsLoading(true);
-    
+
     try {
       await deleteQuestion(selectedQuestion.id);
-      toast({ title: "Silindi", description: `Soru "${selectedQuestion.text.tr}" Firestore'dan silindi.`, variant: "default" }); // variant destructive olabilir
+      toast({ title: "Silindi", description: `Soru "${selectedQuestion.text.tr}" Firestore'dan silindi.`, variant: "default" });
       setSelectedQuestion(null);
-      await loadQuestionsFromService(); // Listeyi güncelle
+      await loadQuestionsFromService();
     } catch (error: any) {
       console.error("Error deleting question:", error);
+      let description = error.message || "Soru silinirken bir sorun oluştu.";
+      if (error.message === "An unexpected response was received from the server.") {
+        description = "Sunucudan beklenmedik bir yanıt alındı. Lütfen sunucu loglarını (terminal) ve Firestore güvenlik kurallarınızı kontrol edin.";
+      }
       toast({
         title: "Silme Hatası",
-        description: error.message || "Soru silinirken bir sorun oluştu.",
+        description: description,
         variant: "destructive",
       });
     } finally {
@@ -303,7 +311,7 @@ export default function AdminPage() {
     if (!choice || !Array.isArray(choice.media)) return undefined;
     return choice.media.find(m => m.type === type);
   };
-  
+
   if (isLoading && questions.length === 0 && !selectedQuestion) {
     return (
         <div className="min-h-screen flex flex-col items-center justify-center">
@@ -354,7 +362,7 @@ export default function AdminPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center">
-                  <Edit3 className="mr-2 h-5 w-5" /> 
+                  <Edit3 className="mr-2 h-5 w-5" />
                   {isCreatingNew ? "Yeni Soru Oluştur" : `Soruyu Düzenle: ${selectedQuestion.text.tr || 'Başlıksız'}`}
                 </CardTitle>
                 <CardDescription>
@@ -401,7 +409,7 @@ export default function AdminPage() {
                             disabled={isLoading}
                           />
                         </div>
-                        
+
                         {/* Image Media Section */}
                         <div className="space-y-2 pt-2 border-t mt-3">
                           <Label className="flex items-center"><ImageIcon className="mr-2 h-4 w-4" /> Resim Medyası</Label>
@@ -558,3 +566,5 @@ export default function AdminPage() {
     </div>
   );
 }
+
+    
