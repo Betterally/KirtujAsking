@@ -3,7 +3,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import type { Question, Choice, MediaItem, LocalizedText } from '@/lib/types';
-// import { initialQuestions } from '@/lib/data'; // Artık Firestore'dan yüklenecek
 import { getQuestions, saveQuestion, deleteQuestion } from '@/services/questionService';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/ui/button';
@@ -25,7 +24,7 @@ const createNewChoice = (idSuffix: string): Choice => ({
 });
 
 const createNewQuestion = (): Question => ({
-  id: `newQuestion-${Date.now()}`, // Firestore'a kaydederken bu ID kullanılacak
+  id: `newQuestion-${Date.now()}`, 
   text: createEmptyTurkishText(),
   choices: [createNewChoice('1'), createNewChoice('2')],
 });
@@ -74,7 +73,7 @@ export default function AdminPage() {
   const handleSelectQuestion = (questionId: string) => {
     const question = questions.find(q => q.id === questionId);
     if (question) {
-      setSelectedQuestion(JSON.parse(JSON.stringify(question)));
+      setSelectedQuestion(JSON.parse(JSON.stringify(question))); // Deep copy
       setIsCreatingNew(false);
     }
   };
@@ -140,19 +139,20 @@ export default function AdminPage() {
 
     let mediaItem = choiceToUpdate.media.find(m => m.type === mediaType);
 
-    if (!mediaItem && property === 'url' && value) {
+    if (!mediaItem && property === 'url' && value) { // If no item and trying to set URL, create it
         mediaItem = { type: mediaType, url: '' };
         if (mediaType === 'image') {
             mediaItem.altText = createEmptyTurkishText();
         }
         choiceToUpdate.media.push(mediaItem);
-        mediaItem = choiceToUpdate.media.find(m => m.type === mediaType)!;
+        mediaItem = choiceToUpdate.media.find(m => m.type === mediaType)!; // Re-assign to the newly pushed item
     } else if (!mediaItem) {
-        return;
+        return; // Can't update property of non-existent media item (unless it's URL as above)
     }
 
     if (property === 'url') {
         mediaItem.url = value;
+        // If URL is cleared and it wasn't a data URI, remove the media item
         if (!value && !mediaItem.url.startsWith('data:')) {
             choiceToUpdate.media = choiceToUpdate.media.filter(m => m.type !== mediaType);
         }
@@ -164,12 +164,19 @@ export default function AdminPage() {
     setSelectedQuestion(prev => prev ? { ...prev, choices: choicesCopy } : null);
   };
 
+
   const handleChoiceMediaFileUpload = (choiceIndex: number, mediaType: 'image' | 'audio' | 'video', file: File | null) => {
     if (!selectedQuestion) return;
 
     if (!file) {
-        handleRemoveChoiceMedia(choiceIndex, mediaType);
-        toast({ title: "Dosya Temizlendi", description: "Daha önce seçilen dosya kaldırıldı." });
+        // If no file is selected, it might mean user wants to clear the existing Data URI
+        // Or simply cancelled the file dialog. We only clear if there was a data URI.
+        const currentMedia = selectedQuestion.choices[choiceIndex].media.find(m => m.type === mediaType);
+        if (currentMedia && currentMedia.url.startsWith('data:')) {
+            handleRemoveChoiceMedia(choiceIndex, mediaType);
+            toast({ title: "Dosya Temizlendi", description: "Daha önce yüklenen dosya kaldırıldı." });
+        }
+         // Clear the file input visually
         const fileInput = document.getElementById(`media-file-${selectedQuestion.choices[choiceIndex].id}-${mediaType}`) as HTMLInputElement;
         if (fileInput) fileInput.value = "";
         return;
@@ -178,6 +185,7 @@ export default function AdminPage() {
     const reader = new FileReader();
     reader.onloadend = () => {
         const dataUrl = reader.result as string;
+        // For images, try to preserve existing alt text or use file name
         const altText = mediaType === 'image' ? (selectedQuestion.choices[choiceIndex].media.find(m=>m.type==='image')?.altText?.tr || file.name) : undefined;
         updateOrAddMediaItem(choiceIndex, mediaType, dataUrl, altText);
         toast({ title: "Dosya Hazır", description: `${file.name} seçildi. Kalıcı olması için soruyu kaydedin.` });
@@ -198,14 +206,17 @@ export default function AdminPage() {
     setSelectedQuestion(prev => prev ? { ...prev, choices: choicesCopy } : null);
     toast({ title: "Medya Kaldırıldı", description: `${mediaType === 'image' ? 'Resim' : (mediaType === 'audio' ? 'Ses' : 'Video')} medyası kaldırıldı.`});
 
+    // Clear the file input
     const fileInputId = `media-file-${choicesCopy[choiceIndex].id}-${mediaType}`;
     const fileInput = document.getElementById(fileInputId) as HTMLInputElement;
     if (fileInput) fileInput.value = "";
 
+    // Clear the URL input
     const urlInputId = `media-url-${choicesCopy[choiceIndex].id}-${mediaType}`;
     const urlInput = document.getElementById(urlInputId) as HTMLInputElement;
-    if (urlInput) urlInput.value = "";
+    if (urlInput) urlInput.value = ""; // This might not be needed if handleChoiceMediaPropertyChange handles it.
   };
+
 
   const handleAddChoiceToQuestion = () => {
     if (!selectedQuestion) return;
@@ -230,6 +241,7 @@ export default function AdminPage() {
     if (!selectedQuestion) return;
     setIsLoading(true);
 
+    // Ensure all texts are filled and media alt texts are present
     let missingText = false;
     if (!selectedQuestion.text.tr) {
         missingText = true;
@@ -238,11 +250,11 @@ export default function AdminPage() {
         if (!choice.text.tr) {
             missingText = true;
         }
-        if(!Array.isArray(choice.media)) choice.media = [];
+        if(!Array.isArray(choice.media)) choice.media = []; // Ensure media is an array
         choice.media.forEach(m => {
             if (m.type === 'image' && (!m.altText || !m.altText.tr)) {
                 if (!m.altText) m.altText = createEmptyTurkishText();
-                m.altText.tr = "Resim için alternatif metin";
+                m.altText.tr = "Resim için alternatif metin"; // Default alt text
                 toast({ title: "Uyarı", description: `Bir resim için varsayılan alternatif metin eklendi. Lütfen güncelleyin.`, variant: "default", duration: 4000 });
             }
         });
@@ -265,7 +277,7 @@ export default function AdminPage() {
       toast({ title: "Başarılı", description: `Soru "${questionToSave.text.tr}" Firestore'a kaydedildi.` });
       setSelectedQuestion(null);
       setIsCreatingNew(false);
-      await loadQuestionsFromService();
+      await loadQuestionsFromService(); // Reload questions to reflect changes
     } catch (error: any) {
       console.error("Error saving question:", error);
       let description = error.message || "Soru kaydedilirken bir sorun oluştu.";
@@ -283,14 +295,14 @@ export default function AdminPage() {
   };
 
   const handleDeleteQuestion = async () => {
-    if (!selectedQuestion || isCreatingNew) return;
+    if (!selectedQuestion || isCreatingNew) return; // Cannot delete a new, unsaved question
     setIsLoading(true);
 
     try {
       await deleteQuestion(selectedQuestion.id);
       toast({ title: "Silindi", description: `Soru "${selectedQuestion.text.tr}" Firestore'dan silindi.`, variant: "default" });
       setSelectedQuestion(null);
-      await loadQuestionsFromService();
+      await loadQuestionsFromService(); // Reload questions
     } catch (error: any) {
       console.error("Error deleting question:", error);
       let description = error.message || "Soru silinirken bir sorun oluştu.";
@@ -306,13 +318,14 @@ export default function AdminPage() {
       setIsLoading(false);
     }
   };
-
+  
+  // Helper to get specific media item from a choice's media array
   const getChoiceMediaItem = (choice: Choice | undefined, type: 'image' | 'audio' | 'video'): MediaItem | undefined => {
     if (!choice || !Array.isArray(choice.media)) return undefined;
     return choice.media.find(m => m.type === type);
   };
 
-  if (isLoading && questions.length === 0 && !selectedQuestion) {
+  if (isLoading && questions.length === 0 && !selectedQuestion) { // Initial loading state for the whole page
     return (
         <div className="min-h-screen flex flex-col items-center justify-center">
             <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -326,6 +339,7 @@ export default function AdminPage() {
       <Header currentLanguage="tr" onLanguageChange={() => {}} showLanguageSwitcher={false} />
       <main className="flex-grow container mx-auto px-4 py-8">
         <div className="grid md:grid-cols-[300px_1fr] gap-8">
+          {/* Questions List Card */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center"><List className="mr-2 h-5 w-5" /> Sorular</CardTitle>
@@ -334,19 +348,19 @@ export default function AdminPage() {
               </Button>
             </CardHeader>
             <CardContent>
-              {isLoading && questions.length === 0 ? (
+              {isLoading && questions.length === 0 ? ( // Loading indicator for question list specifically
                 <div className="flex justify-center items-center h-[calc(100vh-320px)]">
                   <Loader2 className="h-8 w-8 animate-spin text-primary" />
                 </div>
               ) : questions.length === 0 && !isLoading ? (
                  <p className="text-center text-muted-foreground py-4">Gösterilecek soru bulunmuyor.</p>
               ) : (
-                <ScrollArea className="h-[calc(100vh-280px)]">
+                <ScrollArea className="h-[calc(100vh-280px)]"> {/* Adjusted height */}
                   {questions.map(q => (
                     <Button
                       key={q.id}
                       variant={selectedQuestion?.id === q.id && !isCreatingNew ? "secondary" : "ghost"}
-                      className="w-full justify-start mb-2 text-left h-auto py-2"
+                      className="w-full justify-start mb-2 text-left h-auto py-2" // Ensure text wraps
                       onClick={() => handleSelectQuestion(q.id)}
                       disabled={isLoading}
                     >
@@ -358,6 +372,7 @@ export default function AdminPage() {
             </CardContent>
           </Card>
 
+          {/* Question Edit/Create Card */}
           {selectedQuestion ? (
             <Card>
               <CardHeader>
@@ -371,7 +386,7 @@ export default function AdminPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                <ScrollArea className="h-[calc(100vh-320px)] pr-4">
+                <ScrollArea className="h-[calc(100vh-320px)] pr-4"> {/* Adjusted height and padding */}
                   <div className="space-y-4">
                     <div>
                       <Label htmlFor="questionText-tr">Soru Metni (Türkçe)</Label>
@@ -392,7 +407,7 @@ export default function AdminPage() {
                     const audioMedia = getChoiceMediaItem(choice, 'audio');
                     const videoMedia = getChoiceMediaItem(choice, 'video');
                     return (
-                      <Card key={choice.id} className="p-4 space-y-3 bg-muted/30 mb-4">
+                      <Card key={choice.id} className="p-4 space-y-3 bg-muted/30 mb-4"> {/* Added bg for slight distinction */}
                         <div className="flex justify-between items-center">
                           <h4 className="font-medium">Seçenek {choiceIndex + 1}</h4>
                           <Button variant="ghost" size="icon" onClick={() => handleRemoveChoiceFromQuestion(choiceIndex)} aria-label="Seçeneği kaldır" disabled={isLoading}>
@@ -427,15 +442,15 @@ export default function AdminPage() {
                               onChange={(e) => handleChoiceMediaPropertyChange(choiceIndex, 'image', 'url', e.target.value)}
                               placeholder="Veya Resim URL'si yapıştırın"
                               className="mt-1 w-full"
-                              disabled={isLoading || !!(imageMedia?.url && imageMedia.url.startsWith('data:'))}
+                              disabled={isLoading || !!(imageMedia?.url && imageMedia.url.startsWith('data:'))} // Disable if data URI is present
                           />
                           {imageMedia?.url?.startsWith('data:') && (
                               <p className="text-xs text-muted-foreground mt-1">
-                                  Yüklenen resim Data URI olarak saklandı.
+                                  Yüklenen resim Data URI olarak saklandı. 
                                   <Button variant="link" size="sm" className="p-0 h-auto ml-1 text-destructive" onClick={() => handleRemoveChoiceMedia(choiceIndex, 'image')} disabled={isLoading}>Temizle</Button>
                               </p>
                           )}
-                          {imageMedia && (
+                          {imageMedia && ( // Show alt text only if image media exists
                             <Input
                                 id={`media-altText-${choice.id}-image`}
                                 value={imageMedia.altText?.tr || ""}
@@ -445,7 +460,7 @@ export default function AdminPage() {
                                 disabled={isLoading}
                             />
                           )}
-                           {imageMedia && (
+                           {imageMedia && ( // Show clear button only if image media exists
                              <Button variant="outline" size="sm" onClick={() => handleRemoveChoiceMedia(choiceIndex, 'image')} className="mt-1" disabled={isLoading}>
                                 <Trash2 className="mr-1 h-3 w-3" /> Resmi Temizle
                             </Button>
@@ -473,7 +488,7 @@ export default function AdminPage() {
                             />
                             {audioMedia?.url?.startsWith('data:') && (
                                 <p className="text-xs text-muted-foreground mt-1">
-                                    Yüklenen ses Data URI olarak saklandı.
+                                    Yüklenen ses Data URI olarak saklandı. 
                                     <Button variant="link" size="sm" className="p-0 h-auto ml-1 text-destructive" onClick={() => handleRemoveChoiceMedia(choiceIndex, 'audio')} disabled={isLoading}>Temizle</Button>
                                 </p>
                             )}
@@ -505,7 +520,7 @@ export default function AdminPage() {
                             />
                             {videoMedia?.url?.startsWith('data:') && (
                                 <p className="text-xs text-muted-foreground mt-1">
-                                    Yüklenen video Data URI olarak saklandı.
+                                    Yüklenen video Data URI olarak saklandı. 
                                     <Button variant="link" size="sm" className="p-0 h-auto ml-1 text-destructive" onClick={() => handleRemoveChoiceMedia(choiceIndex, 'video')} disabled={isLoading}>Temizle</Button>
                                 </p>
                             )}
@@ -522,7 +537,7 @@ export default function AdminPage() {
                     <PlusCircle className="mr-2 h-4 w-4" /> Seçenek Ekle
                   </Button>
                 </ScrollArea>
-                <div className="flex justify-end gap-2 pt-4 border-t">
+                <div className="flex justify-end gap-2 pt-4 border-t"> {/* Added border-t and padding-top */}
                   {selectedQuestion && !isCreatingNew && (
                      <Button variant="destructive" onClick={handleDeleteQuestion} disabled={isLoading}>
                         {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -537,12 +552,13 @@ export default function AdminPage() {
               </CardContent>
             </Card>
           ) : (
+            // Placeholder when no question is selected
             <Card className="flex flex-col items-center justify-center min-h-[300px] text-center">
               <CardHeader>
                 <CardTitle>Soru Seçilmedi</CardTitle>
               </CardHeader>
               <CardContent>
-                 {isLoading ? (
+                 {isLoading ? ( // Show loader if general page is loading and no question is selected
                     <div className="flex flex-col items-center">
                         <Loader2 className="h-8 w-8 animate-spin text-primary" />
                         <p className="mt-2 text-muted-foreground">Yükleniyor...</p>
@@ -561,10 +577,8 @@ export default function AdminPage() {
         </div>
       </main>
       <footer className="py-4 text-center text-sm text-muted-foreground border-t">
-        Yönetici Paneli - YanıtMatik (Firestore Bağlı)
+        Yönetici Paneli - KirtujAsking (Firestore Bağlı)
       </footer>
     </div>
   );
 }
-
-    

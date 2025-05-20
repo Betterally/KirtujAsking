@@ -3,7 +3,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import type { LanguageCode, Question, Choice, MediaItem } from '@/lib/types';
-// import { initialQuestions } from '@/lib/data'; // Artık Firestore'dan yüklenecek
 import { getQuestions } from '@/services/questionService';
 import { QuestionDisplay } from '@/components/user/QuestionDisplay';
 import { MediaViewer } from '@/components/user/MediaViewer';
@@ -61,7 +60,10 @@ export default function UserPage() {
 
   const handleLanguageChange = (lang: LanguageCode) => {
     setCurrentLanguage(lang);
-    resetMediaAndChoice();
+    // Keep current question, but reset selections
+    setSelectedChoice(null);
+    setVisualMediaForViewer(null);
+    setAudioMediaForViewer(null);
   };
 
   const resetMediaAndChoice = () => {
@@ -77,7 +79,7 @@ export default function UserPage() {
     const video = choice.media.find(m => m.type === 'video');
     const audio = choice.media.find(m => m.type === 'audio');
 
-    setVisualMediaForViewer(image || video || null);
+    setVisualMediaForViewer(image || video || null); 
     setAudioMediaForViewer(audio || null);
   };
 
@@ -96,21 +98,21 @@ export default function UserPage() {
   };
 
   const handleRestart = async () => {
-    await loadQuestionsFromService();
+    await loadQuestionsFromService(); 
   };
 
   const currentQuestion = questions[currentQuestionIndex];
 
   if (isLoading) {
     return (
-        <div className="min-h-screen flex flex-col items-center justify-center bg-background">
+        <div className="min-h-screen flex flex-col bg-background">
              <Header currentLanguage={currentLanguage} onLanguageChange={handleLanguageChange} />
             <main className="flex-grow container mx-auto px-4 py-8 flex flex-col items-center justify-center">
                 <Loader2 className="h-12 w-12 animate-spin text-primary" />
                 <p className="mt-4 text-muted-foreground">Sorular yükleniyor...</p>
             </main>
              <footer className="py-4 text-center text-sm text-muted-foreground border-t">
-                © {new Date().getFullYear()} YanıtMatik. Firestore Bağlı.
+                © {new Date().getFullYear()} KirtujAsking. Firestore Bağlı.
             </footer>
         </div>
     );
@@ -181,10 +183,8 @@ export default function UserPage() {
         )}
       </main>
       <footer className="py-4 text-center text-sm text-muted-foreground border-t">
-        © {new Date().getFullYear()} YanıtMatik. Firestore Bağlı.
+        © {new Date().getFullYear()} KirtujAsking. Firestore Bağlı.
       </footer>
     </div>
   );
 }
-
-    
