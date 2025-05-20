@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import type { Question, Choice, MediaItem, LocalizedText } from '@/lib/types';
-import { getQuestions, saveQuestion, deleteQuestion } from '@/services/questionService';
+import { getQuestions, saveQuestion, deleteQuestion, uploadMediaFile } from '@/services/questionService';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -165,7 +165,7 @@ export default function AdminPage() {
   };
 
 
-  const handleChoiceMediaFileUpload = (choiceIndex: number, mediaType: 'image' | 'audio' | 'video', file: File | null) => {
+  const handleChoiceMediaFileUpload = async (choiceIndex: number, mediaType: 'image' | 'audio' | 'video', file: File | null) => {
     if (!selectedQuestion) return;
 
     if (!file) {
@@ -182,18 +182,30 @@ export default function AdminPage() {
         return;
     }
 
-    const reader = new FileReader();
-    reader.onloadend = () => {
-        const dataUrl = reader.result as string;
+    setIsLoading(true); // Start loading
+
+    try {
+        // Upload the file to Firebase Storage
+        const downloadURL = await uploadMediaFile(file, mediaType);
+
         // For images, try to preserve existing alt text or use file name
         const altText = mediaType === 'image' ? (selectedQuestion.choices[choiceIndex].media.find(m=>m.type==='image')?.altText?.tr || file.name) : undefined;
-        updateOrAddMediaItem(choiceIndex, mediaType, dataUrl, altText);
-        toast({ title: "Dosya Hazır", description: `${file.name} seçildi. Kalıcı olması için soruyu kaydedin.` });
-    };
-    reader.onerror = () => {
-        toast({ title: "Dosya Hatası", description: "Seçilen dosya okunamadı.", variant: "destructive" });
-    };
-    reader.readAsDataURL(file);
+
+        // Update the media item with the download URL
+        updateOrAddMediaItem(choiceIndex, mediaType, downloadURL, altText);
+
+        toast({
+            title: "Dosya Yüklendi",
+            description: `${file.name} başarıyla yüklendi.`,
+        });
+    } catch (error: any) {
+        console.error("Error uploading media file:", error);
+        toast({
+            title: "Yükleme Hatası",
+            description: `Dosya yüklenirken bir hata oluştu: ${error.message}`,
+            variant: "destructive",
+        });
+    } finally { setIsLoading(false); } // Stop loading
   };
 
   const handleRemoveChoiceMedia = (choiceIndex: number, mediaType: 'image' | 'audio' | 'video') => {
