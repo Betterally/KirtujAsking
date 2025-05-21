@@ -3,7 +3,6 @@
 
 import { db } from '@/lib/firebase';
 import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch } from 'firebase/firestore';
-import type { Question } from '@/lib/types';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { initialQuestions } from '@/lib/data'; 
 
@@ -93,23 +92,5 @@ export async function deleteQuestion(questionId: string): Promise<void> {
     console.error(`Firestore'dan soru (${questionId}) silme hatası: `, error);
     console.error("Olası Nedenler: Firestore güvenlik kuralları silme izni vermiyor olabilir.");
     throw new Error(`Soru silinirken bir hata oluştu: ${error.message}. Check Firestore security rules and server logs.`);
-  }
-}
-
-// Dosyayı Firebase Storage'a yükler
-export async function uploadMediaFile(file: File, mediaType: 'image' | 'audio' | 'video'): Promise<string> {
-  try {
-    const storage = getStorage();
-    // Create a storage reference with a unique name
-    const storageRef = ref(storage, `media/${mediaType}/${Date.now()}_${file.name}`);
-
-    // Upload the file
-    const snapshot = await uploadBytes(storageRef, file);
-
-    // Get the download URL
-    const downloadURL = await getDownloadURL(snapshot.ref);
-    return downloadURL;
-  } catch (error: any) {
-    throw new Error(`Dosya yüklenirken bir hata oluştu: ${error.message}`);
   }
 }

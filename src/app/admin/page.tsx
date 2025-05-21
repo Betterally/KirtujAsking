@@ -2,8 +2,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
-import type { Question, Choice, MediaItem, LocalizedText } from '@/lib/types';
-import { getQuestions, saveQuestion, deleteQuestion, uploadMediaFile } from '@/services/questionService';
+import { getQuestions, saveQuestion, deleteQuestion } from '@/services/questionService';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +14,7 @@ import { Separator } from '@/components/ui/separator';
 import { useToast } from "@/hooks/use-toast";
 import { PlusCircle, Trash2, Edit3, List, Image as ImageIcon, AudioWaveform, Film, Loader2 } from 'lucide-react';
 
+import type { Question, Choice, MediaItem, LocalizedText } from '@/lib/types';
 const createEmptyTurkishText = (): LocalizedText => ({ tr: "" });
 
 const createNewChoice = (idSuffix: string): Choice => ({
@@ -50,15 +50,28 @@ export default function AdminPage() {
       }));
       setQuestions(processedQuestions);
     } catch (error: any) {
-      console.error("Error loading questions from service:", error);
-      let description = error.message || "Sorular yüklenirken bir sorun oluştu.";
-      if (error.message === "An unexpected response was received from the server.") {
-        description = "Sunucudan beklenmedik bir yanıt alındı. Lütfen sunucu loglarını (terminal) ve Firestore güvenlik kurallarınızı kontrol edin.";
+      console.error("Error loading questions from service (admin):", error);
+      let description = "Sorular yüklenirken bir sorun oluştu.";
+      if (error instanceof Error) {
+        description = error.message;
+        if (error.message.toLowerCase().includes("unexpected token '<'")) {
+            description = "Sunucudan beklenmedik bir format (HTML) alındı. Bu genellikle bir API veya sunucu tarafı hatasını gösterir. Lütfen sunucu loglarını (terminal) kontrol edin.";
+        } else if (error.message.toLowerCase().includes("failed to fetch") || error.message.toLowerCase().includes("networkerror")) {
+            description = "Sunucuya ulaşılamadı. İnternet bağlantınızı veya sunucu durumunu kontrol edin.";
+        } else if (error.message.includes("An unexpected response was received from the server.")) {
+            description = "Sunucudan beklenmedik bir yanıt alındı. Lütfen sunucu loglarını (terminal) ve Firestore güvenlik kurallarınızı kontrol edin.";
+        }
+      } else if (typeof error === 'string') {
+        description = error;
+        if (error.toLowerCase().includes("unexpected token '<'")) {
+             description = "Sunucudan beklenmedik bir format (HTML) alındı. Bu genellikle bir API veya sunucu tarafı hatasını gösterir. Lütfen sunucu loglarını (terminal) kontrol edin.";
+        }
       }
       toast({
-        title: "Hata",
+        title: "Yükleme Hatası",
         description: description,
         variant: "destructive",
+        duration: 7000,
       });
       setQuestions([]);
     } finally {
@@ -139,21 +152,20 @@ export default function AdminPage() {
 
     let mediaItem = choiceToUpdate.media.find(m => m.type === mediaType);
 
-    if (!mediaItem && property === 'url' && value) { // If no item and trying to set URL, create it
+    if (!mediaItem && property === 'url' && value) { 
         mediaItem = { type: mediaType, url: '' };
         if (mediaType === 'image') {
             mediaItem.altText = createEmptyTurkishText();
         }
         choiceToUpdate.media.push(mediaItem);
-        mediaItem = choiceToUpdate.media.find(m => m.type === mediaType)!; // Re-assign to the newly pushed item
+        mediaItem = choiceToUpdate.media.find(m => m.type === mediaType)!; 
     } else if (!mediaItem) {
-        return; // Can't update property of non-existent media item (unless it's URL as above)
+        return; 
     }
 
     if (property === 'url') {
         mediaItem.url = value;
-        // If URL is cleared and it wasn't a data URI, remove the media item
-        if (!value && !mediaItem.url.startsWith('data:')) {
+        if (!value && mediaItem.url && !mediaItem.url.startsWith('data:')) {
             choiceToUpdate.media = choiceToUpdate.media.filter(m => m.type !== mediaType);
         }
     } else if (property === 'altText' && mediaType === 'image') {
@@ -169,30 +181,24 @@ export default function AdminPage() {
     if (!selectedQuestion) return;
 
     if (!file) {
-        // If no file is selected, it might mean user wants to clear the existing Data URI
-        // Or simply cancelled the file dialog. We only clear if there was a data URI.
         const currentMedia = selectedQuestion.choices[choiceIndex].media.find(m => m.type === mediaType);
         if (currentMedia && currentMedia.url.startsWith('data:')) {
             handleRemoveChoiceMedia(choiceIndex, mediaType);
             toast({ title: "Dosya Temizlendi", description: "Daha önce yüklenen dosya kaldırıldı." });
         }
-         // Clear the file input visually
         const fileInput = document.getElementById(`media-file-${selectedQuestion.choices[choiceIndex].id}-${mediaType}`) as HTMLInputElement;
         if (fileInput) fileInput.value = "";
         return;
     }
 
-    setIsLoading(true); // Start loading
-
     try {
-        // Upload the file to Firebase Storage
-        const downloadURL = await uploadMediaFile(file, mediaType);
-
-        // For images, try to preserve existing alt text or use file name
-        const altText = mediaType === 'image' ? (selectedQuestion.choices[choiceIndex].media.find(m=>m.type==='image')?.altText?.tr || file.name) : undefined;
-
-        // Update the media item with the download URL
-        updateOrAddMediaItem(choiceIndex, mediaType, downloadURL, altText);
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            const dataUrl = reader.result as string;
+            const altText = mediaType === 'image' ? (selectedQuestion.choices[choiceIndex].media.find(m=>m.type==='image')?.altText?.tr || file.name) : undefined;
+            updateOrAddMediaItem(choiceIndex, mediaType, dataUrl, altText);
+        };
+        reader.readAsDataURL(file);
 
         toast({
             title: "Dosya Yüklendi",
@@ -205,7 +211,7 @@ export default function AdminPage() {
             description: `Dosya yüklenirken bir hata oluştu: ${error.message}`,
             variant: "destructive",
         });
-    } finally { setIsLoading(false); } // Stop loading
+    } 
   };
 
   const handleRemoveChoiceMedia = (choiceIndex: number, mediaType: 'image' | 'audio' | 'video') => {
@@ -218,15 +224,13 @@ export default function AdminPage() {
     setSelectedQuestion(prev => prev ? { ...prev, choices: choicesCopy } : null);
     toast({ title: "Medya Kaldırıldı", description: `${mediaType === 'image' ? 'Resim' : (mediaType === 'audio' ? 'Ses' : 'Video')} medyası kaldırıldı.`});
 
-    // Clear the file input
     const fileInputId = `media-file-${choicesCopy[choiceIndex].id}-${mediaType}`;
     const fileInput = document.getElementById(fileInputId) as HTMLInputElement;
     if (fileInput) fileInput.value = "";
 
-    // Clear the URL input
     const urlInputId = `media-url-${choicesCopy[choiceIndex].id}-${mediaType}`;
     const urlInput = document.getElementById(urlInputId) as HTMLInputElement;
-    if (urlInput) urlInput.value = ""; // This might not be needed if handleChoiceMediaPropertyChange handles it.
+    if (urlInput) urlInput.value = ""; 
   };
 
 
@@ -253,7 +257,6 @@ export default function AdminPage() {
     if (!selectedQuestion) return;
     setIsLoading(true);
 
-    // Ensure all texts are filled and media alt texts are present
     let missingText = false;
     if (!selectedQuestion.text.tr) {
         missingText = true;
@@ -262,11 +265,11 @@ export default function AdminPage() {
         if (!choice.text.tr) {
             missingText = true;
         }
-        if(!Array.isArray(choice.media)) choice.media = []; // Ensure media is an array
+        if(!Array.isArray(choice.media)) choice.media = []; 
         choice.media.forEach(m => {
             if (m.type === 'image' && (!m.altText || !m.altText.tr)) {
                 if (!m.altText) m.altText = createEmptyTurkishText();
-                m.altText.tr = "Resim için alternatif metin"; // Default alt text
+                m.altText.tr = "Resim için alternatif metin"; 
                 toast({ title: "Uyarı", description: `Bir resim için varsayılan alternatif metin eklendi. Lütfen güncelleyin.`, variant: "default", duration: 4000 });
             }
         });
@@ -289,17 +292,30 @@ export default function AdminPage() {
       toast({ title: "Başarılı", description: `Soru "${questionToSave.text.tr}" Firestore'a kaydedildi.` });
       setSelectedQuestion(null);
       setIsCreatingNew(false);
-      await loadQuestionsFromService(); // Reload questions to reflect changes
+      await loadQuestionsFromService(); 
     } catch (error: any) {
-      console.error("Error saving question:", error);
-      let description = error.message || "Soru kaydedilirken bir sorun oluştu.";
-      if (error.message === "An unexpected response was received from the server.") {
-        description = "Sunucudan beklenmedik bir yanıt alındı. Lütfen sunucu loglarını (terminal) ve Firestore güvenlik kurallarınızı kontrol edin.";
+      console.error("Error saving question (admin):", error);
+      let description = "Soru kaydedilirken bir sorun oluştu.";
+       if (error instanceof Error) {
+        description = error.message;
+        if (error.message.toLowerCase().includes("unexpected token '<'")) {
+            description = "Sunucudan beklenmedik bir format (HTML) alındı. Bu genellikle bir API veya sunucu tarafı hatasını gösterir. Lütfen sunucu loglarını (terminal) kontrol edin.";
+        } else if (error.message.toLowerCase().includes("failed to fetch") || error.message.toLowerCase().includes("networkerror")) {
+            description = "Sunucuya ulaşılamadı. İnternet bağlantınızı veya sunucu durumunu kontrol edin.";
+        } else if (error.message.includes("An unexpected response was received from the server.")) {
+            description = "Sunucudan beklenmedik bir yanıt alındı. Lütfen sunucu loglarını (terminal) ve Firestore güvenlik kurallarınızı kontrol edin.";
+        }
+      } else if (typeof error === 'string') {
+        description = error;
+        if (error.toLowerCase().includes("unexpected token '<'")) {
+             description = "Sunucudan beklenmedik bir format (HTML) alındı. Bu genellikle bir API veya sunucu tarafı hatasını gösterir. Lütfen sunucu loglarını (terminal) kontrol edin.";
+        }
       }
       toast({
         title: "Kaydetme Hatası",
         description: description,
         variant: "destructive",
+        duration: 7000,
       });
     } finally {
       setIsLoading(false);
@@ -307,37 +323,49 @@ export default function AdminPage() {
   };
 
   const handleDeleteQuestion = async () => {
-    if (!selectedQuestion || isCreatingNew) return; // Cannot delete a new, unsaved question
+    if (!selectedQuestion || isCreatingNew) return; 
     setIsLoading(true);
 
     try {
       await deleteQuestion(selectedQuestion.id);
       toast({ title: "Silindi", description: `Soru "${selectedQuestion.text.tr}" Firestore'dan silindi.`, variant: "default" });
       setSelectedQuestion(null);
-      await loadQuestionsFromService(); // Reload questions
+      await loadQuestionsFromService(); 
     } catch (error: any) {
-      console.error("Error deleting question:", error);
-      let description = error.message || "Soru silinirken bir sorun oluştu.";
-      if (error.message === "An unexpected response was received from the server.") {
-        description = "Sunucudan beklenmedik bir yanıt alındı. Lütfen sunucu loglarını (terminal) ve Firestore güvenlik kurallarınızı kontrol edin.";
+      console.error("Error deleting question (admin):", error);
+      let description = "Soru silinirken bir sorun oluştu.";
+      if (error instanceof Error) {
+        description = error.message;
+        if (error.message.toLowerCase().includes("unexpected token '<'")) {
+            description = "Sunucudan beklenmedik bir format (HTML) alındı. Bu genellikle bir API veya sunucu tarafı hatasını gösterir. Lütfen sunucu loglarını (terminal) kontrol edin.";
+        } else if (error.message.toLowerCase().includes("failed to fetch") || error.message.toLowerCase().includes("networkerror")) {
+            description = "Sunucuya ulaşılamadı. İnternet bağlantınızı veya sunucu durumunu kontrol edin.";
+        } else if (error.message.includes("An unexpected response was received from the server.")) {
+            description = "Sunucudan beklenmedik bir yanıt alındı. Lütfen sunucu loglarını (terminal) ve Firestore güvenlik kurallarınızı kontrol edin.";
+        }
+      } else if (typeof error === 'string') {
+        description = error;
+        if (error.toLowerCase().includes("unexpected token '<'")) {
+             description = "Sunucudan beklenmedik bir format (HTML) alındı. Bu genellikle bir API veya sunucu tarafı hatasını gösterir. Lütfen sunucu loglarını (terminal) kontrol edin.";
+        }
       }
       toast({
         title: "Silme Hatası",
         description: description,
         variant: "destructive",
+        duration: 7000,
       });
     } finally {
       setIsLoading(false);
     }
   };
   
-  // Helper to get specific media item from a choice's media array
   const getChoiceMediaItem = (choice: Choice | undefined, type: 'image' | 'audio' | 'video'): MediaItem | undefined => {
     if (!choice || !Array.isArray(choice.media)) return undefined;
     return choice.media.find(m => m.type === type);
   };
 
-  if (isLoading && questions.length === 0 && !selectedQuestion) { // Initial loading state for the whole page
+  if (isLoading && questions.length === 0 && !selectedQuestion) { 
     return (
         <div className="min-h-screen flex flex-col items-center justify-center">
             <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -351,7 +379,6 @@ export default function AdminPage() {
       <Header currentLanguage="tr" onLanguageChange={() => {}} showLanguageSwitcher={false} />
       <main className="flex-grow container mx-auto px-4 py-8">
         <div className="grid md:grid-cols-[300px_1fr] gap-8">
-          {/* Questions List Card */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center"><List className="mr-2 h-5 w-5" /> Sorular</CardTitle>
@@ -360,19 +387,19 @@ export default function AdminPage() {
               </Button>
             </CardHeader>
             <CardContent>
-              {isLoading && questions.length === 0 ? ( // Loading indicator for question list specifically
+              {isLoading && questions.length === 0 ? ( 
                 <div className="flex justify-center items-center h-[calc(100vh-320px)]">
                   <Loader2 className="h-8 w-8 animate-spin text-primary" />
                 </div>
               ) : questions.length === 0 && !isLoading ? (
                  <p className="text-center text-muted-foreground py-4">Gösterilecek soru bulunmuyor.</p>
               ) : (
-                <ScrollArea className="h-[calc(100vh-280px)]"> {/* Adjusted height */}
+                <ScrollArea className="h-[calc(100vh-280px)]"> 
                   {questions.map(q => (
                     <Button
                       key={q.id}
                       variant={selectedQuestion?.id === q.id && !isCreatingNew ? "secondary" : "ghost"}
-                      className="w-full justify-start mb-2 text-left h-auto py-2" // Ensure text wraps
+                      className="w-full justify-start mb-2 text-left h-auto py-2" 
                       onClick={() => handleSelectQuestion(q.id)}
                       disabled={isLoading}
                     >
@@ -384,7 +411,6 @@ export default function AdminPage() {
             </CardContent>
           </Card>
 
-          {/* Question Edit/Create Card */}
           {selectedQuestion ? (
             <Card>
               <CardHeader>
@@ -398,7 +424,7 @@ export default function AdminPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                <ScrollArea className="h-[calc(100vh-320px)] pr-4"> {/* Adjusted height and padding */}
+                <ScrollArea className="h-[calc(100vh-320px)] pr-4"> 
                   <div className="space-y-4">
                     <div>
                       <Label htmlFor="questionText-tr">Soru Metni (Türkçe)</Label>
@@ -419,7 +445,7 @@ export default function AdminPage() {
                     const audioMedia = getChoiceMediaItem(choice, 'audio');
                     const videoMedia = getChoiceMediaItem(choice, 'video');
                     return (
-                      <Card key={choice.id} className="p-4 space-y-3 bg-muted/30 mb-4"> {/* Added bg for slight distinction */}
+                      <Card key={choice.id} className="p-4 space-y-3 bg-muted/30 mb-4"> 
                         <div className="flex justify-between items-center">
                           <h4 className="font-medium">Seçenek {choiceIndex + 1}</h4>
                           <Button variant="ghost" size="icon" onClick={() => handleRemoveChoiceFromQuestion(choiceIndex)} aria-label="Seçeneği kaldır" disabled={isLoading}>
@@ -454,7 +480,7 @@ export default function AdminPage() {
                               onChange={(e) => handleChoiceMediaPropertyChange(choiceIndex, 'image', 'url', e.target.value)}
                               placeholder="Veya Resim URL'si yapıştırın"
                               className="mt-1 w-full"
-                              disabled={isLoading || !!(imageMedia?.url && imageMedia.url.startsWith('data:'))} // Disable if data URI is present
+                              disabled={isLoading || !!(imageMedia?.url && imageMedia.url.startsWith('data:'))} 
                           />
                           {imageMedia?.url?.startsWith('data:') && (
                               <p className="text-xs text-muted-foreground mt-1">
@@ -462,9 +488,9 @@ export default function AdminPage() {
                                   <Button variant="link" size="sm" className="p-0 h-auto ml-1 text-destructive" onClick={() => handleRemoveChoiceMedia(choiceIndex, 'image')} disabled={isLoading}>Temizle</Button>
                               </p>
                           )}
-                          {imageMedia && ( // Show alt text only if image media exists
+                          {imageMedia && ( 
                             <Input
-                                id={`media-altText-${choice.id}-image`}
+                                id={`media-altText-${choice.id}-image-tr`}
                                 value={imageMedia.altText?.tr || ""}
                                 onChange={(e) => handleChoiceMediaPropertyChange(choiceIndex, 'image', 'altText', e.target.value)}
                                 placeholder="Resim Alternatif Metni (Türkçe)"
@@ -472,7 +498,7 @@ export default function AdminPage() {
                                 disabled={isLoading}
                             />
                           )}
-                           {imageMedia && ( // Show clear button only if image media exists
+                           {imageMedia && ( 
                              <Button variant="outline" size="sm" onClick={() => handleRemoveChoiceMedia(choiceIndex, 'image')} className="mt-1" disabled={isLoading}>
                                 <Trash2 className="mr-1 h-3 w-3" /> Resmi Temizle
                             </Button>
@@ -549,7 +575,7 @@ export default function AdminPage() {
                     <PlusCircle className="mr-2 h-4 w-4" /> Seçenek Ekle
                   </Button>
                 </ScrollArea>
-                <div className="flex justify-end gap-2 pt-4 border-t"> {/* Added border-t and padding-top */}
+                <div className="flex justify-end gap-2 pt-4 border-t"> 
                   {selectedQuestion && !isCreatingNew && (
                      <Button variant="destructive" onClick={handleDeleteQuestion} disabled={isLoading}>
                         {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -564,13 +590,12 @@ export default function AdminPage() {
               </CardContent>
             </Card>
           ) : (
-            // Placeholder when no question is selected
             <Card className="flex flex-col items-center justify-center min-h-[300px] text-center">
               <CardHeader>
                 <CardTitle>Soru Seçilmedi</CardTitle>
               </CardHeader>
               <CardContent>
-                 {isLoading ? ( // Show loader if general page is loading and no question is selected
+                 {isLoading ? ( 
                     <div className="flex flex-col items-center">
                         <Loader2 className="h-8 w-8 animate-spin text-primary" />
                         <p className="mt-2 text-muted-foreground">Yükleniyor...</p>

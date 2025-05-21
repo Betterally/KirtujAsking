@@ -38,14 +38,27 @@ export default function UserPage() {
       resetMediaAndChoice();
     } catch (error: any) {
       console.error("Error loading questions for user page:", error);
-      let description = error.message || "Sorular yüklenirken bir sorun oluştu.";
-      if (error.message === "An unexpected response was received from the server.") {
-        description = "Sunucudan beklenmedik bir yanıt alındı. Lütfen sunucu loglarını (terminal) ve Firestore güvenlik kurallarınızı kontrol edin.";
+      let description = "Sorular yüklenirken bir sorun oluştu.";
+       if (error instanceof Error) {
+        description = error.message;
+        if (error.message.toLowerCase().includes("unexpected token '<'")) {
+            description = "Sunucudan beklenmedik bir format (HTML) alındı. Bu genellikle bir API veya sunucu tarafı hatasını gösterir. Lütfen sunucu loglarını (terminal) kontrol edin.";
+        } else if (error.message.toLowerCase().includes("failed to fetch") || error.message.toLowerCase().includes("networkerror")) {
+            description = "Sunucuya ulaşılamadı. İnternet bağlantınızı veya sunucu durumunu kontrol edin.";
+        } else if (error.message.includes("An unexpected response was received from the server.")) {
+            description = "Sunucudan beklenmedik bir yanıt alındı. Lütfen sunucu loglarını (terminal) ve Firestore güvenlik kurallarınızı kontrol edin.";
+        }
+      } else if (typeof error === 'string') {
+        description = error;
+        if (error.toLowerCase().includes("unexpected token '<'")) {
+             description = "Sunucudan beklenmedik bir format (HTML) alındı. Bu genellikle bir API veya sunucu tarafı hatasını gösterir. Lütfen sunucu loglarını (terminal) kontrol edin.";
+        }
       }
       toast({
         title: "Hata",
         description: description,
         variant: "destructive",
+        duration: 7000,
       });
       setQuestions([]);
     } finally {
@@ -60,10 +73,7 @@ export default function UserPage() {
 
   const handleLanguageChange = (lang: LanguageCode) => {
     setCurrentLanguage(lang);
-    // Keep current question, but reset selections
-    setSelectedChoice(null);
-    setVisualMediaForViewer(null);
-    setAudioMediaForViewer(null);
+    resetMediaAndChoice();
   };
 
   const resetMediaAndChoice = () => {
@@ -102,6 +112,11 @@ export default function UserPage() {
   };
 
   const currentQuestion = questions[currentQuestionIndex];
+
+  useEffect(() => {
+    resetMediaAndChoice();
+  }, [currentQuestionIndex]);
+
 
   if (isLoading) {
     return (
