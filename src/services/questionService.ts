@@ -4,12 +4,12 @@
 
 import { db, app } from '@/lib/firebase'; // 'app' import edildi
 import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch } from 'firebase/firestore';
-import { getStorage, ref as storageRef, uploadString, getDownloadURL, deleteObject as deleteStorageObject } from 'firebase/storage'; // Storage importları eklendi
+// Firebase Storage importları kaldırıldı
 import type { Question, MediaItem, Choice } from '@/lib/types';
 import { initialQuestions } from '@/lib/data'; 
 
 const QUESTIONS_COLLECTION = 'questions';
-const storage = getStorage(app); // Firebase Storage başlatıldı
+// Firebase Storage başlatma kaldırıldı
 
 // Firestore'dan tüm soruları getirir
 export async function getQuestions(): Promise<Question[]> {
@@ -32,7 +32,7 @@ export async function getQuestions(): Promise<Question[]> {
           for (const choice of q.choices) {
             for (const mediaItem of choice.media) {
               if (mediaItem.url && mediaItem.url.startsWith('data:')) {
-                console.warn(`[questionService] Initial question ${q.id}, choice ${choice.id} media URL is a data URI. This should ideally be a direct URL or uploaded during a proper save operation.`);
+                console.warn(`[questionService] Initial question ${q.id}, choice ${choice.id} media URL is a data URI. Bu, Firestore doküman boyutunu etkileyebilir.`);
               } else if (mediaItem.url && !mediaItem.url.startsWith('https://') && !mediaItem.url.startsWith('http://')) {
                 console.warn(`[questionService] Initial question ${q.id}, choice ${choice.id} media URL is not a valid HTTP/HTTPS URL: ${mediaItem.url}.`);
               }
@@ -83,54 +83,34 @@ export async function saveQuestion(question: Question): Promise<void> {
       throw new Error("Kaydedilecek soru için ID belirtilmelidir.");
     }
 
+    // Firebase Storage'a yükleme mantığı kaldırıldı.
+    // Veri URI'leri (eğer varsa) doğrudan Firestore'a kaydedilecek.
     const questionToSave: Question = JSON.parse(JSON.stringify({ id, ...questionData })); 
 
+    // Medya öğelerini kontrol et, data URI'leri doğrudan saklanacak
     for (const choice of questionToSave.choices) {
-      for (let i = 0; i < choice.media.length; i++) {
-        const mediaItem = choice.media[i];
+      for (const mediaItem of choice.media) {
         if (mediaItem.url && mediaItem.url.startsWith('data:')) {
-          console.log(`[questionService] Processing data URI for question ${id}, choice ${choice.id}, type ${mediaItem.type}.`);
-          const [header, base64Data] = mediaItem.url.split(',');
-          if (!base64Data) {
-            console.error("[questionService] Invalid data URI format: base64Data is missing.");
-            throw new Error('Invalid data URI format for media.');
-          }
-          const mimeTypeMatch = header.match(/:(.*?);/);
-          const mimeType = mimeTypeMatch ? mimeTypeMatch[1] : 'application/octet-stream';
-          
-          const fileExtension = mimeType.split('/')[1] || 'bin';
-          const fileName = `${mediaItem.type}_${Date.now()}_${Math.random().toString(36).substring(2,7)}.${fileExtension}`;
-          const filePath = `questions_media/${id}/${choice.id}/${fileName}`;
-          const fileRef = storageRef(storage, filePath);
-
-          console.log(`[questionService] Attempting to upload to Firebase Storage. Path: ${filePath}, MimeType: ${mimeType}`);
-          try {
-            await uploadString(fileRef, base64Data, 'base64', { contentType: mimeType });
-            const downloadURL = await getDownloadURL(fileRef);
-            mediaItem.url = downloadURL; 
-            console.log(`[questionService] Media uploaded successfully to Firebase Storage. URL: ${downloadURL}`);
-          } catch (storageUploadError: any) {
-            console.error(`[questionService] FIREBASE STORAGE UPLOAD/GET_URL ERROR for question ${id}, choice ${choice.id}, media type ${mediaItem.type}, path ${filePath}:`);
-            console.error(`[questionService] Storage Error Code: ${storageUploadError.code}`);
-            console.error(`[questionService] Storage Error Message: ${storageUploadError.message}`);
-            console.error("[questionService] Full Storage Error Object:", JSON.stringify(storageUploadError, Object.getOwnPropertyNames(storageUploadError), 2));
-            throw new Error(`Firebase Storage operation failed for media ${mediaItem.type}: ${storageUploadError.message} (Code: ${storageUploadError.code})`);
-          }
+          console.log(`[questionService] Data URI for question ${id}, choice ${choice.id}, type ${mediaItem.type} Firestore'a doğrudan kaydedilecek.`);
+          // Base64 verisinin boyutu Firestore 1MB doküman sınırını aşabilir, dikkatli olunmalı.
         }
       }
     }
 
     const questionDocRef = doc(db, QUESTIONS_COLLECTION, id);
-    await setDoc(questionDocRef, { ...questionToSave, id: undefined }); 
+    // Firestore'a yazarken `id` alanını ayrı olarak göndermiyoruz, doküman ID'si olarak kullanılıyor.
+    // Bu nedenle questionToSave'den id'yi çıkarmaya gerek yok, zaten setDoc'a verilmeyen bir nesne.
+    // Ancak, questionData zaten id'yi içermiyor, bu yüzden {...questionData} yeterli.
+    await setDoc(questionDocRef, { ...questionData }); // id alanı dokümanın verisine yazılmaz
     console.log(`[questionService] Soru '${id}' başarıyla Firestore'a kaydedildi/güncellendi.`);
+
   } catch (error: any) {
     console.error(`[questionService] Genel hata saveQuestion fonksiyonunda, soru ID ${question.id || 'ID_YOK'}:`, error);
-    if (error.message?.includes("Firebase Storage operation failed")) {
-      throw new Error(`Soru kaydedilemedi: ${error.message}. Sunucu loglarını ve Storage/Firestore güvenlik kurallarını kontrol edin.`);
-    } else if (error.code && (error.code.startsWith('storage/') || error.code.startsWith('firestore/'))) {
-      throw new Error(`Soru kaydedilirken bir Firebase hatası oluştu: ${error.message} (Kod: ${error.code}). Güvenlik kurallarını ve sunucu loglarını kontrol edin.`);
+    // Hata mesajı Storage ile ilgili olmayacak şekilde genel tutuldu.
+    if (error.code && error.code.startsWith('firestore/')) {
+      throw new Error(`Soru kaydedilirken bir Firestore hatası oluştu: ${error.message} (Kod: ${error.code}). Güvenlik kurallarını ve sunucu loglarını kontrol edin.`);
     } else {
-      throw new Error(`Soru kaydedilirken bir hata oluştu: ${error.message}. Firestore/Storage güvenlik kurallarını ve sunucu loglarını kontrol edin.`);
+      throw new Error(`Soru kaydedilirken bir hata oluştu: ${error.message}. Firestore güvenlik kurallarını ve sunucu loglarını kontrol edin.`);
     }
   }
 }
@@ -142,25 +122,7 @@ export async function deleteQuestion(questionId: string): Promise<void> {
     if (!questionId) {
       throw new Error("Silinecek soru için ID belirtilmelidir.");
     }
-    // İsteğe bağlı Storage'dan silme kodu buraya eklenebilir.
-    // Örnek: (önce soruyu çekip medya URL'lerini almak gerekir)
-    // const questionDoc = await getDoc(doc(db, QUESTIONS_COLLECTION, questionId));
-    // if (questionDoc.exists()) {
-    //   const questionData = questionDoc.data() as Question;
-    //   for (const choice of questionData.choices) {
-    //     for (const media of choice.media) {
-    //       if (media.url.includes("firebasestorage.googleapis.com")) {
-    //         try {
-    //           const fileStorageRef = storageRef(storage, media.url); // URL'den ref oluştur
-    //           await deleteStorageObject(fileStorageRef);
-    //           console.log(`[questionService] Firebase Storage'dan silindi: ${media.url}`);
-    //         } catch (storageError: any) {
-    //           console.error(`[questionService] Storage'dan dosya silme hatası (${media.url}): `, storageError.message);
-    //         }
-    //       }
-    //     }
-    //   }
-    // }
+    // Firebase Storage'dan medya silme kodu kaldırıldı.
 
     const questionDocRef = doc(db, QUESTIONS_COLLECTION, questionId);
     await deleteDoc(questionDocRef);
