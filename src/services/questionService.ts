@@ -4,12 +4,10 @@
 
 import { db, app } from '@/lib/firebase';
 import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch } from 'firebase/firestore';
-// Firebase Storage ile ilgili importlar kaldırıldı
 import type { Question, MediaItem, Choice } from '@/lib/types';
 import { initialQuestions } from '@/lib/data';
 
 const QUESTIONS_COLLECTION = 'questions';
-// storage sabiti kaldırıldı
 
 // Firestore'dan tüm soruları getirir
 export async function getQuestions(): Promise<Question[]> {
@@ -29,8 +27,9 @@ export async function getQuestions(): Promise<Question[]> {
         const questionsToSaveInitially: Question[] = JSON.parse(JSON.stringify(initialQuestions));
 
         for (const q of questionsToSaveInitially) {
-          const questionDocRef = doc(db, QUESTIONS_COLLECTION, q.id);
-          batch.set(questionDocRef, q);
+          const { id, ...questionData } = q; // id'yi ayır
+          const questionDocRef = doc(db, QUESTIONS_COLLECTION, id);
+          batch.set(questionDocRef, questionData); // Sadece questionData'yı kaydet (id olmadan)
         }
         await batch.commit();
         console.log("[questionService] Initial questions Firestore'a yüklendi.");
@@ -61,9 +60,17 @@ export async function getQuestions(): Promise<Question[]> {
   } catch (error: any) {
     console.error("[questionService] Firestore'dan soruları getirme/işleme genel hatası: ", error);
     if (error.message && error.message.startsWith("Initial questions could not be written")) {
-        throw error; 
+        throw error;
     }
-    throw new Error(`Sorular yüklenirken bir hata oluştu: ${error.message}. Sunucu loglarını kontrol edin.`);
+    let userFriendlyMessage = `Sorular yüklenirken bir hata oluştu. Lütfen internet bağlantınızı kontrol edin ve tekrar deneyin. Sorun devam ederse destek ile iletişime geçin.`;
+    if (error.message && error.message.toLowerCase().includes("offline") && error.message.toLowerCase().includes("firestore")) {
+        userFriendlyMessage = "Firestore (veritabanı) çevrimdışı veya ulaşılamıyor gibi görünüyor. İnternet bağlantınızı ve Firebase durumunu kontrol edin.";
+    } else if (error.message && error.message.toLowerCase().includes("quota") || error.message.toLowerCase().includes("limit exceeded")) {
+        userFriendlyMessage = "Veritabanı işlem kotası aşılmış olabilir. Lütfen Firebase planınızı kontrol edin veya bir süre sonra tekrar deneyin.";
+    } else if (error.message) {
+        userFriendlyMessage = `Sorular yüklenirken bir hata oluştu: ${error.message}. Sunucu loglarını kontrol edin.`;
+    }
+    throw new Error(userFriendlyMessage);
   }
 }
 
@@ -71,26 +78,31 @@ export async function getQuestions(): Promise<Question[]> {
 // Firestore'a yeni bir soru ekler veya mevcut bir soruyu günceller
 export async function saveQuestion(question: Question): Promise<void> {
   try {
-    const { id, ...questionData } = question;
+    const { id, ...questionData } = question; // id'yi ayır, geri kalan veriyi questionData'ya al
     if (!id) {
       throw new Error("Kaydedilecek soru için ID belirtilmelidir.");
     }
 
-    // Medya dosyalarını Firebase Storage'a yükleme mantığı kaldırıldı.
-    // Veri URI'leri doğrudan Firestore'a kaydedilecek.
-    const questionToSave: Question = JSON.parse(JSON.stringify({ id, ...questionData }));
+    // Medya dosyaları veri URI'si olarak doğrudan Firestore'a kaydedilecek.
+    // questionData zaten id'yi içermiyor.
 
     const questionDocRef = doc(db, QUESTIONS_COLLECTION, id);
-    await setDoc(questionDocRef, { ...questionToSave, id: undefined }); 
+    // Firestore'a sadece questionData'yı (id olmadan) kaydet
+    await setDoc(questionDocRef, questionData);
     console.log(`[questionService] Soru '${id}' başarıyla Firestore'a kaydedildi/güncellendi.`);
 
   } catch (error: any) {
     console.error(`[questionService] saveQuestion fonksiyonunda genel hata (Soru ${question.id || 'ID_YOK'}):`, error);
-    // Hata mesajı genel tutuldu, Storage ile ilgili referanslar kaldırıldı.
-    if (String(error.message).includes("exceeds the maximum allowed size")) {
-        throw new Error(`Firestore doküman boyutu sınırı aşıldı. Yüklediğiniz medya dosyaları çok büyük olabilir. Orijinal Hata: ${error.message}`);
+    let userFriendlyMessage = `Soru kaydedilirken bir hata oluştu. Lütfen tekrar deneyin.`;
+
+    if (error.code === 'invalid-argument' && error.message && error.message.toLowerCase().includes('unsupported field value: undefined')) {
+        userFriendlyMessage = `Soru kaydedilirken bir hata oluştu: Geçersiz veri gönderildi (bir alan 'undefined' olabilir). Lütfen tüm alanların dolu olduğundan emin olun. Hata Detayı: ${error.message}`;
+    } else if (error.message && error.message.toLowerCase().includes("exceeds the maximum allowed size")) {
+        userFriendlyMessage = `Soru kaydedilemedi: Dosya boyutu Firestore için çok büyük (maksimum 1MB). Lütfen daha küçük medya dosyaları kullanın. Orijinal Hata: ${error.message}`;
+    } else if (error.message) {
+        userFriendlyMessage = `Soru kaydedilirken bir hata oluştu: ${error.message}. Firestore güvenlik kurallarını ve sunucu loglarını kontrol edin.`;
     }
-    throw new Error(`Soru kaydedilirken bir hata oluştu: ${error.message}. Firestore güvenlik kurallarını ve sunucu loglarını kontrol edin.`);
+    throw new Error(userFriendlyMessage);
   }
 }
 
@@ -101,7 +113,6 @@ export async function deleteQuestion(questionId: string): Promise<void> {
     if (!questionId) {
       throw new Error("Silinecek soru için ID belirtilmelidir.");
     }
-    // Firebase Storage'dan dosya silme ile ilgili yorum satırı kaldırıldı.
     const questionDocRef = doc(db, QUESTIONS_COLLECTION, questionId);
     await deleteDoc(questionDocRef);
     console.log(`[questionService] Soru '${questionId}' başarıyla Firestore'dan silindi.`);
