@@ -17,20 +17,19 @@ export async function getQuestions(): Promise<Question[]> {
 
     let questions: Question[] = [];
     querySnapshot.forEach((docSnapshot) => {
-      // Firestore'dan gelen veriyi Question tipine cast etmeden önce doğrula/dönüştür
       const data = docSnapshot.data();
       const question: Question = {
         id: docSnapshot.id,
-        text: data.text || { tr: '' }, // Varsayılan değerler
-        choices: (data.choices || []).map((choiceData: any) => ({
-          id: choiceData.id || '',
+        text: data.text || { tr: '' },
+        choices: (data.choices || []).map((choiceData: any): Choice => ({
+          id: choiceData.id || `choice-${Date.now()}-${Math.random()}`, // Fallback ID
           text: choiceData.text || { tr: '' },
-          media: (choiceData.media || []).map((mediaData: any) => ({
+          media: (choiceData.media || []).map((mediaData: any): MediaItem => ({
             type: mediaData.type,
             url: mediaData.url,
-            altText: mediaData.altText, // altText tanımsız olabilir, bu sorun değil
-            dataAiHint: mediaData.dataAiHint, // dataAiHint tanımsız olabilir
-          })),
+            altText: mediaData.altText, 
+            dataAiHint: mediaData.dataAiHint,
+          })).filter((mediaItem: MediaItem) => mediaItem.type && mediaItem.url), // Filter out invalid media items
         })),
       };
       questions.push(question);
@@ -86,31 +85,79 @@ export async function getQuestions(): Promise<Question[]> {
 
 // Firestore'a yeni bir soru ekler veya mevcut bir soruyu günceller
 export async function saveQuestion(question: Question): Promise<void> {
-  let dataToLogOnError: any = null; // Hata durumunda loglanacak veri
+  let dataToLogOnError: any = null; 
   try {
-    const { id, ...questionData } = question;
+    const { id, ...questionDataInput } = question;
     if (!id) {
       throw new Error("Kaydedilecek soru için ID belirtilmelidir.");
     }
 
-    // undefined özelliklerini kaldırmak ve derin bir kopya oluşturmak için JSON.parse(JSON.stringify()) kullanın.
-    const questionToSave = JSON.parse(JSON.stringify(questionData));
-    dataToLogOnError = questionToSave; // Kaydedilmeye çalışılacak veriyi sakla
+    // Deep clone for manipulation
+    let questionData = JSON.parse(JSON.stringify(questionDataInput));
+    
+    // Sanitize media items within choices
+    if (questionData.choices && Array.isArray(questionData.choices)) {
+      questionData.choices = questionData.choices.map((choice: any) => {
+        if (!choice || typeof choice.id !== 'string' || !choice.text ) {
+            console.warn('[questionService] Malformed choice found and will be kept as is (further errors might occur):', choice);
+            return choice; // Potentially problematic, but preserve
+        }
+        if (choice.media && Array.isArray(choice.media)) {
+          const cleanedMedia = choice.media.map((mediaItem: any) => {
+            if (!mediaItem || typeof mediaItem.type !== 'string' || typeof mediaItem.url !== 'string') {
+              console.warn('[questionService] Malformed media item found in choice', choice.id, 'and will be filtered:', mediaItem);
+              return null; 
+            }
+            const cleanMediaItem: MediaItem = {
+              type: mediaItem.type,
+              url: mediaItem.url,
+            };
+
+            // Add altText only if it's a valid LocalizedText object with content
+            if (mediaItem.altText && typeof mediaItem.altText === 'object') {
+              const cleanAltText: LocalizedText = {};
+              let hasValidAltText = false;
+              for (const lang in mediaItem.altText) {
+                if (typeof mediaItem.altText[lang] === 'string' && mediaItem.altText[lang].trim() !== '') {
+                  cleanAltText[lang] = mediaItem.altText[lang];
+                  hasValidAltText = true;
+                }
+              }
+              if (hasValidAltText) {
+                 cleanMediaItem.altText = cleanAltText;
+              }
+            }
+            
+            // Add dataAiHint only if it's a non-empty string
+            if (typeof mediaItem.dataAiHint === 'string' && mediaItem.dataAiHint.trim() !== '') {
+              cleanMediaItem.dataAiHint = mediaItem.dataAiHint;
+            }
+            return cleanMediaItem;
+          }).filter((item: any): item is MediaItem => item !== null); 
+
+          return { ...choice, media: cleanedMedia };
+        }
+        return { ...choice, media: [] }; // Ensure media is always an array
+      });
+    } else {
+        questionData.choices = []; // Ensure choices is always an array
+    }
+    
+    const questionToSave = questionData;
+    dataToLogOnError = questionToSave; 
 
     const questionDocRef = doc(db, QUESTIONS_COLLECTION, id);
-    await setDoc(questionDocRef, questionToSave); // Sadece questionData'yı (id olmadan) kaydet
+    await setDoc(questionDocRef, questionToSave);
     console.log(`[questionService] Soru '${id}' başarıyla Firestore'a kaydedildi/güncellendi.`);
 
   } catch (error: any) {
     console.error(`[questionService] saveQuestion fonksiyonunda hata (Soru ID: ${question.id || 'ID_YOK'}):`, error);
     let userFriendlyMessage = `Soru kaydedilirken bir hata oluştu. Lütfen tekrar deneyin.`;
 
-    if (error.code === 'invalid-argument' || (error.message && error.message.includes("INVALID_ARGUMENT"))) {
-        userFriendlyMessage = `Soru kaydedilirken bir hata oluştu: ${error.message}. Firestore güvenlik kurallarını ve sunucu loglarını kontrol edin.`;
-        if (error.message && error.message.includes("Property array contains an invalid nested entity")) {
-             console.error("[questionService] DETAYLI BİLGİ: 'Invalid nested entity' hatası genellikle bir dizideki (choice veya media item gibi) bir nesnenin tanımsız bir özelliği olduğu veya Firestore'un beklediği gibi düz bir nesne olarak yapılandırılmadığı anlamına gelir.");
-             console.error("[questionService] Kaydedilmeye çalışılan veri:", JSON.stringify(dataToLogOnError, null, 2)); // Sorunlu veriyi logla
-        }
+    if (error.message && error.message.includes("INVALID_ARGUMENT") && error.message.includes("Property array contains an invalid nested entity")) {
+        userFriendlyMessage = `Soru kaydedilirken bir hata oluştu: 3 INVALID_ARGUMENT: Property array contains an invalid nested entity.. Firestore güvenlik kurallarını ve sunucu loglarını kontrol edin.`;
+        console.error("[questionService] DETAYLI BİLGİ: 'Invalid nested entity' hatası genellikle bir dizideki (choice veya media item gibi) bir nesnenin Firestore'un kabul etmediği bir özellik (örn: undefined) veya yapı içerdiği anlamına gelir.");
+        console.error("[questionService] Kaydedilmeye çalışılan veri (hataya neden olan):", JSON.stringify(dataToLogOnError, null, 2));
     } else if (error.message && error.message.toLowerCase().includes("exceeds the maximum allowed size")) {
         userFriendlyMessage = `Soru kaydedilemedi: Veri boyutu Firestore için çok büyük (maksimum 1MB). Lütfen daha küçük medya dosyaları (veya daha az/kısa metin) kullanın. Orijinal Hata: ${error.message}`;
     } else if (error.message) {
@@ -138,3 +185,4 @@ export async function deleteQuestion(questionId: string): Promise<void> {
 }
 
 export type { Question, MediaItem, Choice, LocalizedText };
+
